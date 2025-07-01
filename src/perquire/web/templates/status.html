@@ -1,0 +1,325 @@
+{% extends "base.html" %}
+
+{% block title %}Perquire - Status & Statistics{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h1><i class="bi bi-graph-up"></i> Investigation Status</h1>
+            <button class="btn btn-outline-primary" onclick="loadStatus()">
+                <i class="bi bi-arrow-clockwise"></i> Refresh
+            </button>
+        </div>
+
+        <!-- Statistics Cards -->
+        <div class="row mb-4" id="statsCards">
+            <div class="col-md-3">
+                <div class="card text-center">
+                    <div class="card-body">
+                        <i class="bi bi-search fs-1 text-primary"></i>
+                        <h5 class="card-title mt-2">Total Investigations</h5>
+                        <h2 class="text-primary" id="totalInvestigations">-</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-center">
+                    <div class="card-body">
+                        <i class="bi bi-question-circle fs-1 text-info"></i>
+                        <h5 class="card-title mt-2">Total Questions</h5>
+                        <h2 class="text-info" id="totalQuestions">-</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-center">
+                    <div class="card-body">
+                        <i class="bi bi-target fs-1 text-success"></i>
+                        <h5 class="card-title mt-2">Avg Similarity</h5>
+                        <h2 class="text-success" id="avgSimilarity">-</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-center">
+                    <div class="card-body">
+                        <i class="bi bi-arrow-repeat fs-1 text-warning"></i>
+                        <h5 class="card-title mt-2">Avg Iterations</h5>
+                        <h2 class="text-warning" id="avgIterations">-</h2>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recent Investigations -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-clock-history"></i> Recent Investigations
+                </h5>
+            </div>
+            <div class="card-body">
+                <div id="loadingSpinner" class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-2">Loading investigations...</p>
+                </div>
+                
+                <div id="investigationsTable" style="display: none;">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Description</th>
+                                    <th>Similarity</th>
+                                    <th>Strategy</th>
+                                    <th>Date</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="investigationsTableBody">
+                                <!-- Populated by JavaScript -->
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <div class="d-flex justify-content-between align-items-center mt-3">
+                        <div>
+                            <button class="btn btn-outline-secondary" id="prevPage" onclick="changePage(-1)">
+                                <i class="bi bi-chevron-left"></i> Previous
+                            </button>
+                            <button class="btn btn-outline-secondary" id="nextPage" onclick="changePage(1)">
+                                Next <i class="bi bi-chevron-right"></i>
+                            </button>
+                        </div>
+                        <div>
+                            <span class="text-muted">Page <span id="currentPage">1</span></span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div id="noInvestigations" class="text-center py-4" style="display: none;">
+                    <i class="bi bi-inbox fs-1 text-muted"></i>
+                    <p class="mt-2 text-muted">No investigations found</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Investigation Detail Modal -->
+<div class="modal fade" id="investigationModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Investigation Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="investigationModalBody">
+                <!-- Populated by JavaScript -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-danger" id="deleteInvestigationBtn" onclick="deleteInvestigation()">
+                    <i class="bi bi-trash"></i> Delete
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+let currentPage = 1;
+const itemsPerPage = 20;
+let currentInvestigationId = null;
+
+// Load status on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadStatus();
+    loadInvestigations();
+});
+
+async function loadStatus() {
+    try {
+        const response = await fetch('/api/status');
+        if (!response.ok) throw new Error('Failed to load status');
+        
+        const status = await response.json();
+        
+        document.getElementById('totalInvestigations').textContent = status.total_investigations;
+        document.getElementById('totalQuestions').textContent = status.total_questions;
+        document.getElementById('avgSimilarity').textContent = (status.avg_similarity * 100).toFixed(1) + '%';
+        document.getElementById('avgIterations').textContent = status.avg_iterations.toFixed(1);
+        
+    } catch (error) {
+        console.error('Failed to load status:', error);
+    }
+}
+
+async function loadInvestigations(page = 1) {
+    try {
+        document.getElementById('loadingSpinner').style.display = 'block';
+        document.getElementById('investigationsTable').style.display = 'none';
+        document.getElementById('noInvestigations').style.display = 'none';
+        
+        const offset = (page - 1) * itemsPerPage;
+        const response = await fetch(`/api/investigations?limit=${itemsPerPage}&offset=${offset}`);
+        if (!response.ok) throw new Error('Failed to load investigations');
+        
+        const data = await response.json();
+        const investigations = data.investigations;
+        
+        document.getElementById('loadingSpinner').style.display = 'none';
+        
+        if (investigations.length === 0) {
+            document.getElementById('noInvestigations').style.display = 'block';
+            return;
+        }
+        
+        const tableBody = document.getElementById('investigationsTableBody');
+        tableBody.innerHTML = '';
+        
+        investigations.forEach(inv => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>
+                    <code>${inv.investigation_id.substring(0, 8)}...</code>
+                </td>
+                <td>
+                    <div style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" 
+                         title="${inv.description}">
+                        ${inv.description}
+                    </div>
+                </td>
+                <td>
+                    <div class="d-flex align-items-center">
+                        <span class="me-2">${(inv.final_similarity * 100).toFixed(1)}%</span>
+                        <div class="progress flex-grow-1" style="height: 6px; width: 60px;">
+                            <div class="progress-bar" style="width: ${inv.final_similarity * 100}%"></div>
+                        </div>
+                    </div>
+                </td>
+                <td>
+                    <span class="badge bg-secondary">${inv.strategy_name}</span>
+                </td>
+                <td>
+                    <small class="text-muted">${formatDate(inv.start_time)}</small>
+                </td>
+                <td>
+                    <button class="btn btn-sm btn-outline-primary" onclick="viewInvestigation('${inv.investigation_id}')">
+                        <i class="bi bi-eye"></i>
+                    </button>
+                </td>
+            `;
+            tableBody.appendChild(row);
+        });
+        
+        document.getElementById('investigationsTable').style.display = 'block';
+        document.getElementById('currentPage').textContent = page;
+        
+        // Update pagination buttons
+        document.getElementById('prevPage').disabled = page === 1;
+        document.getElementById('nextPage').disabled = investigations.length < itemsPerPage;
+        
+        currentPage = page;
+        
+    } catch (error) {
+        console.error('Failed to load investigations:', error);
+        document.getElementById('loadingSpinner').style.display = 'none';
+        document.getElementById('noInvestigations').style.display = 'block';
+    }
+}
+
+function changePage(delta) {
+    const newPage = currentPage + delta;
+    if (newPage >= 1) {
+        loadInvestigations(newPage);
+    }
+}
+
+async function viewInvestigation(investigationId) {
+    try {
+        const response = await fetch(`/api/investigations/${investigationId}`);
+        if (!response.ok) throw new Error('Failed to load investigation details');
+        
+        const investigation = await response.json();
+        currentInvestigationId = investigationId;
+        
+        const modalBody = document.getElementById('investigationModalBody');
+        modalBody.innerHTML = `
+            <div class="row">
+                <div class="col-md-8">
+                    <h6><i class="bi bi-file-text"></i> Description</h6>
+                    <p>${investigation.description}</p>
+                    
+                    <h6><i class="bi bi-info-circle"></i> Details</h6>
+                    <table class="table table-sm">
+                        <tr><th>Investigation ID:</th><td><code>${investigation.investigation_id}</code></td></tr>
+                        <tr><th>Strategy:</th><td>${investigation.strategy_name}</td></tr>
+                        <tr><th>Iterations:</th><td>${investigation.iterations}</td></tr>
+                        <tr><th>Start Time:</th><td>${formatDate(investigation.start_time)}</td></tr>
+                        <tr><th>End Time:</th><td>${investigation.end_time ? formatDate(investigation.end_time) : 'N/A'}</td></tr>
+                    </table>
+                </div>
+                <div class="col-md-4">
+                    <h6><i class="bi bi-graph-up"></i> Similarity Score</h6>
+                    <div class="text-center">
+                        <div class="display-6 text-primary">${(investigation.final_similarity * 100).toFixed(1)}%</div>
+                        <div class="progress mt-2" style="height: 12px;">
+                            <div class="progress-bar bg-primary" style="width: ${investigation.final_similarity * 100}%"></div>
+                        </div>
+                    </div>
+                    
+                    ${investigation.metadata ? `
+                    <h6 class="mt-4"><i class="bi bi-gear"></i> Metadata</h6>
+                    <div class="code-block">
+                        <pre>${JSON.stringify(investigation.metadata, null, 2)}</pre>
+                    </div>
+                    ` : ''}
+                </div>
+            </div>
+        `;
+        
+        new bootstrap.Modal(document.getElementById('investigationModal')).show();
+        
+    } catch (error) {
+        console.error('Failed to load investigation details:', error);
+        alert('Failed to load investigation details');
+    }
+}
+
+async function deleteInvestigation() {
+    if (!currentInvestigationId) return;
+    
+    if (!confirm('Are you sure you want to delete this investigation?')) return;
+    
+    try {
+        const response = await fetch(`/api/investigations/${currentInvestigationId}`, {
+            method: 'DELETE'
+        });
+        
+        if (!response.ok) throw new Error('Failed to delete investigation');
+        
+        // Close modal and refresh
+        bootstrap.Modal.getInstance(document.getElementById('investigationModal')).hide();
+        loadStatus();
+        loadInvestigations(currentPage);
+        
+    } catch (error) {
+        console.error('Failed to delete investigation:', error);
+        alert('Failed to delete investigation');
+    }
+}
+
+function formatDate(dateString) {
+    if (!dateString) return 'N/A';
+    const date = new Date(dateString);
+    return date.toLocaleString();
+}
+</script>
+{% endblock %}

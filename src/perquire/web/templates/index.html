@@ -1,0 +1,332 @@
+{% extends "base.html" %}
+
+{% block title %}Perquire - Investigate Embedding{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8 mx-auto">
+        <div class="text-center mb-5">
+            <h1 class="display-4">🔍 Perquire Investigation</h1>
+            <p class="lead">
+                Uncover the mysteries hidden within embeddings through systematic AI questioning
+            </p>
+        </div>
+
+        <!-- Investigation Tabs -->
+        <ul class="nav nav-tabs mb-4" id="investigationTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="manual-tab" data-bs-toggle="tab" data-bs-target="#manual" type="button" role="tab">
+                    <i class="bi bi-pencil"></i> Manual Input
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="file-tab" data-bs-toggle="tab" data-bs-target="#file" type="button" role="tab">
+                    <i class="bi bi-file-earmark-arrow-up"></i> File Upload
+                </button>
+            </li>
+        </ul>
+
+        <div class="tab-content" id="investigationTabContent">
+            <!-- Manual Input Tab -->
+            <div class="tab-pane fade show active" id="manual" role="tabpanel">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="bi bi-pencil"></i> Manual Embedding Input
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <form id="manualForm">
+                            <div class="mb-3">
+                                <label for="embeddingInput" class="form-label">Embedding Vector</label>
+                                <textarea class="form-control" id="embeddingInput" rows="4" 
+                                    placeholder="Enter embedding as comma-separated values: 0.1, 0.2, -0.3, 0.4, ..."></textarea>
+                                <div class="form-text">
+                                    Enter your embedding as comma-separated numbers. Typical embeddings are 768 or 1536 dimensions.
+                                </div>
+                            </div>
+                            
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <label for="providerSelect" class="form-label">LLM Provider</label>
+                                    <select class="form-select" id="providerSelect">
+                                        <option value="gemini" selected>Gemini</option>
+                                        <option value="openai">OpenAI</option>
+                                        <option value="anthropic">Anthropic</option>
+                                        <option value="ollama">Ollama</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="strategySelect" class="form-label">Strategy</label>
+                                    <select class="form-select" id="strategySelect">
+                                        <option value="default" selected>Default</option>
+                                        <option value="artistic">Artistic</option>
+                                        <option value="scientific">Scientific</option>
+                                        <option value="emotional">Emotional</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="saveToDb" checked>
+                                    <label class="form-check-label" for="saveToDb">
+                                        Save results to database
+                                    </label>
+                                </div>
+                            </div>
+                            
+                            <button type="submit" class="btn btn-primary btn-lg w-100" id="investigateBtn">
+                                <span class="btn-content">
+                                    <i class="bi bi-search"></i> Start Investigation
+                                </span>
+                                <span class="loading-spinner">
+                                    <span class="spinner-border spinner-border-sm me-2"></span>
+                                    Investigating...
+                                </span>
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- File Upload Tab -->
+            <div class="tab-pane fade" id="file" role="tabpanel">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="bi bi-file-earmark-arrow-up"></i> File Upload
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <form id="fileForm" enctype="multipart/form-data">
+                            <div class="mb-3">
+                                <label for="fileInput" class="form-label">Embedding File</label>
+                                <input class="form-control" type="file" id="fileInput" accept=".json,.npy,.txt,.csv">
+                                <div class="form-text">
+                                    Supported formats: JSON array, NumPy (.npy), text/CSV with comma or space-separated values
+                                </div>
+                            </div>
+                            
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <label for="fileProviderSelect" class="form-label">LLM Provider</label>
+                                    <select class="form-select" id="fileProviderSelect">
+                                        <option value="gemini" selected>Gemini</option>
+                                        <option value="openai">OpenAI</option>
+                                        <option value="anthropic">Anthropic</option>
+                                        <option value="ollama">Ollama</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="fileStrategySelect" class="form-label">Strategy</label>
+                                    <select class="form-select" id="fileStrategySelect">
+                                        <option value="default" selected>Default</option>
+                                        <option value="artistic">Artistic</option>
+                                        <option value="scientific">Scientific</option>
+                                        <option value="emotional">Emotional</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="fileSaveToDb" checked>
+                                    <label class="form-check-label" for="fileSaveToDb">
+                                        Save results to database
+                                    </label>
+                                </div>
+                            </div>
+                            
+                            <button type="submit" class="btn btn-primary btn-lg w-100" id="fileInvestigateBtn">
+                                <span class="btn-content">
+                                    <i class="bi bi-upload"></i> Upload & Investigate
+                                </span>
+                                <span class="loading-spinner">
+                                    <span class="spinner-border spinner-border-sm me-2"></span>
+                                    Processing...
+                                </span>
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Results Section -->
+        <div id="resultsSection" class="mt-4" style="display: none;">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="bi bi-lightbulb"></i> Investigation Results
+                    </h5>
+                </div>
+                <div class="card-body" id="resultsContent">
+                    <!-- Results will be populated here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Error Alert -->
+        <div id="errorAlert" class="alert alert-danger mt-4" style="display: none;">
+            <h6><i class="bi bi-exclamation-triangle"></i> Investigation Failed</h6>
+            <div id="errorMessage"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+// Manual form submission
+document.getElementById('manualForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const btn = document.getElementById('investigateBtn');
+    const embeddingText = document.getElementById('embeddingInput').value.trim();
+    
+    if (!embeddingText) {
+        alert('Please enter an embedding vector');
+        return;
+    }
+    
+    // Parse embedding
+    let embedding;
+    try {
+        embedding = embeddingText.split(',').map(x => parseFloat(x.trim()));
+        if (embedding.some(isNaN)) {
+            throw new Error('Invalid numbers in embedding');
+        }
+    } catch (error) {
+        alert('Invalid embedding format. Please use comma-separated numbers.');
+        return;
+    }
+    
+    // Show loading state
+    btn.classList.add('loading');
+    hideResults();
+    
+    try {
+        const response = await fetch('/api/investigate', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                embedding: embedding,
+                provider: document.getElementById('providerSelect').value,
+                strategy: document.getElementById('strategySelect').value,
+                save_to_db: document.getElementById('saveToDb').checked
+            })
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Investigation failed');
+        }
+        
+        const result = await response.json();
+        showResults(result);
+        
+    } catch (error) {
+        showError(error.message);
+    } finally {
+        btn.classList.remove('loading');
+    }
+});
+
+// File form submission
+document.getElementById('fileForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const btn = document.getElementById('fileInvestigateBtn');
+    const fileInput = document.getElementById('fileInput');
+    
+    if (!fileInput.files.length) {
+        alert('Please select a file');
+        return;
+    }
+    
+    // Show loading state
+    btn.classList.add('loading');
+    hideResults();
+    
+    try {
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        formData.append('provider', document.getElementById('fileProviderSelect').value);
+        formData.append('strategy', document.getElementById('fileStrategySelect').value);
+        formData.append('save_to_db', document.getElementById('fileSaveToDb').checked);
+        
+        const response = await fetch('/api/investigate/file', {
+            method: 'POST',
+            body: formData
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Investigation failed');
+        }
+        
+        const result = await response.json();
+        showResults(result);
+        
+    } catch (error) {
+        showError(error.message);
+    } finally {
+        btn.classList.remove('loading');
+    }
+});
+
+function showResults(result) {
+    hideError();
+    
+    const resultsContent = document.getElementById('resultsContent');
+    const duration = result.duration_seconds ? `${result.duration_seconds.toFixed(1)}s` : 'N/A';
+    
+    resultsContent.innerHTML = `
+        <div class="row">
+            <div class="col-md-8">
+                <h6><i class="bi bi-file-text"></i> Description</h6>
+                <p class="lead">${result.description}</p>
+                
+                <h6><i class="bi bi-info-circle"></i> Details</h6>
+                <ul class="list-unstyled">
+                    <li><strong>Investigation ID:</strong> <code>${result.investigation_id}</code></li>
+                    <li><strong>Strategy:</strong> ${result.strategy_name}</li>
+                    <li><strong>Iterations:</strong> ${result.iterations}</li>
+                    <li><strong>Duration:</strong> ${duration}</li>
+                </ul>
+            </div>
+            <div class="col-md-4">
+                <h6><i class="bi bi-graph-up"></i> Similarity Score</h6>
+                <div class="text-center">
+                    <div class="display-6 text-primary">${(result.final_similarity * 100).toFixed(1)}%</div>
+                    <div class="progress mt-2" style="height: 12px;">
+                        <div class="progress-bar bg-primary" style="width: ${result.final_similarity * 100}%"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.getElementById('resultsSection').style.display = 'block';
+    document.getElementById('resultsSection').scrollIntoView({ behavior: 'smooth' });
+}
+
+function showError(message) {
+    hideResults();
+    document.getElementById('errorMessage').textContent = message;
+    document.getElementById('errorAlert').style.display = 'block';
+    document.getElementById('errorAlert').scrollIntoView({ behavior: 'smooth' });
+}
+
+function hideResults() {
+    document.getElementById('resultsSection').style.display = 'none';
+}
+
+function hideError() {
+    document.getElementById('errorAlert').style.display = 'none';
+}
+</script>
+{% endblock %}

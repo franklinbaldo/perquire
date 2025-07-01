@@ -1,0 +1,491 @@
+{% extends "base.html" %}
+
+{% block title %}Perquire - Batch Investigation{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-10 mx-auto">
+        <div class="text-center mb-4">
+            <h1><i class="bi bi-stack"></i> Batch Investigation</h1>
+            <p class="lead">Investigate multiple embeddings efficiently</p>
+        </div>
+
+        <!-- Batch Investigation Form -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-upload"></i> Upload Embeddings
+                </h5>
+            </div>
+            <div class="card-body">
+                <form id="batchForm">
+                    <div class="mb-3">
+                        <label for="embeddingsFile" class="form-label">Embeddings File</label>
+                        <input class="form-control" type="file" id="embeddingsFile" accept=".json,.npy">
+                        <div class="form-text">
+                            Upload a JSON file with array of embeddings or NumPy file with 2D array (embeddings × dimensions)
+                        </div>
+                    </div>
+                    
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <label for="batchProvider" class="form-label">LLM Provider</label>
+                            <select class="form-select" id="batchProvider">
+                                <option value="gemini" selected>Gemini</option>
+                                <option value="openai">OpenAI</option>
+                                <option value="anthropic">Anthropic</option>
+                                <option value="ollama">Ollama</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label for="batchStrategy" class="form-label">Strategy</label>
+                            <select class="form-select" id="batchStrategy">
+                                <option value="default" selected>Default</option>
+                                <option value="artistic">Artistic</option>
+                                <option value="scientific">Scientific</option>
+                                <option value="emotional">Emotional</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="form-check mt-4">
+                                <input class="form-check-input" type="checkbox" id="useEnsemble">
+                                <label class="form-check-label" for="useEnsemble">
+                                    Use Ensemble
+                                </label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="useParallel" checked>
+                                <label class="form-check-label" for="useParallel">
+                                    Parallel Processing
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary btn-lg w-100" id="startBatchBtn">
+                        <span class="btn-content">
+                            <i class="bi bi-play"></i> Start Batch Investigation
+                        </span>
+                        <span class="loading-spinner">
+                            <span class="spinner-border spinner-border-sm me-2"></span>
+                            Starting...
+                        </span>
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Progress Section -->
+        <div id="progressSection" class="card mb-4" style="display: none;">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-clock"></i> Investigation Progress
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span>Progress</span>
+                    <span id="progressText">0 / 0</span>
+                </div>
+                <div class="progress mb-3" style="height: 20px;">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                         id="progressBar" style="width: 0%"></div>
+                </div>
+                
+                <div class="row text-center">
+                    <div class="col-md-3">
+                        <div class="h5" id="statusText">Initializing...</div>
+                        <small class="text-muted">Status</small>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="h5" id="completedCount">0</div>
+                        <small class="text-muted">Completed</small>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="h5" id="totalCount">0</div>
+                        <small class="text-muted">Total</small>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="h5" id="elapsedTime">0s</div>
+                        <small class="text-muted">Elapsed</small>
+                    </div>
+                </div>
+                
+                <div class="mt-3">
+                    <button class="btn btn-outline-danger" id="cancelBtn" onclick="cancelBatch()">
+                        <i class="bi bi-stop"></i> Cancel
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Results Section -->
+        <div id="resultsSection" class="card" style="display: none;">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="bi bi-check-circle"></i> Investigation Results
+                </h5>
+                <button class="btn btn-outline-primary btn-sm" onclick="exportResults()">
+                    <i class="bi bi-download"></i> Export
+                </button>
+            </div>
+            <div class="card-body">
+                <!-- Summary Stats -->
+                <div class="row mb-4" id="summaryStats">
+                    <!-- Populated by JavaScript -->
+                </div>
+                
+                <!-- Results Table -->
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Description</th>
+                                <th>Similarity</th>
+                                <th>Strategy</th>
+                                <th>Iterations</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="resultsTableBody">
+                            <!-- Populated by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Error Alert -->
+        <div id="errorAlert" class="alert alert-danger mt-4" style="display: none;">
+            <h6><i class="bi bi-exclamation-triangle"></i> Batch Investigation Failed</h6>
+            <div id="errorMessage"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Result Detail Modal -->
+<div class="modal fade" id="resultModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Investigation Result</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="resultModalBody">
+                <!-- Populated by JavaScript -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+let currentTaskId = null;
+let progressInterval = null;
+let batchResults = [];
+let startTime = null;
+
+document.getElementById('batchForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const fileInput = document.getElementById('embeddingsFile');
+    if (!fileInput.files.length) {
+        alert('Please select an embeddings file');
+        return;
+    }
+    
+    try {
+        // Read and parse file
+        const file = fileInput.files[0];
+        const embeddings = await parseEmbeddingsFile(file);
+        
+        if (!embeddings || embeddings.length === 0) {
+            throw new Error('No valid embeddings found in file');
+        }
+        
+        // Start batch investigation
+        await startBatchInvestigation(embeddings);
+        
+    } catch (error) {
+        showError(error.message);
+    }
+});
+
+async function parseEmbeddingsFile(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        
+        reader.onload = function(e) {
+            try {
+                if (file.name.endsWith('.json')) {
+                    const data = JSON.parse(e.target.result);
+                    if (Array.isArray(data) && Array.isArray(data[0])) {
+                        resolve(data);
+                    } else if (Array.isArray(data)) {
+                        resolve([data]); // Single embedding
+                    } else {
+                        throw new Error('JSON must contain array of embeddings');
+                    }
+                } else {
+                    // For .npy files, we'd need a different approach
+                    // For now, reject .npy files in browser
+                    reject(new Error('NumPy files not supported in browser upload'));
+                }
+            } catch (error) {
+                reject(new Error('Failed to parse file: ' + error.message));
+            }
+        };
+        
+        reader.onerror = () => reject(new Error('Failed to read file'));
+        reader.readAsText(file);
+    });
+}
+
+async function startBatchInvestigation(embeddings) {
+    const btn = document.getElementById('startBatchBtn');
+    btn.classList.add('loading');
+    
+    try {
+        const response = await fetch('/api/investigate/batch', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                embeddings: embeddings,
+                provider: document.getElementById('batchProvider').value,
+                strategy: document.getElementById('batchStrategy').value,
+                use_ensemble: document.getElementById('useEnsemble').checked,
+                parallel: document.getElementById('useParallel').checked
+            })
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to start batch investigation');
+        }
+        
+        const result = await response.json();
+        currentTaskId = result.task_id;
+        
+        // Show progress section
+        document.getElementById('progressSection').style.display = 'block';
+        document.getElementById('totalCount').textContent = result.total;
+        document.getElementById('statusText').textContent = 'Processing...';
+        
+        startTime = Date.now();
+        
+        // Start polling for progress
+        progressInterval = setInterval(checkProgress, 1000);
+        
+        hideError();
+        
+    } catch (error) {
+        showError(error.message);
+    } finally {
+        btn.classList.remove('loading');
+    }
+}
+
+async function checkProgress() {
+    if (!currentTaskId) return;
+    
+    try {
+        const response = await fetch(`/api/investigate/batch/${currentTaskId}`);
+        if (!response.ok) throw new Error('Failed to check progress');
+        
+        const status = await response.json();
+        
+        // Update progress UI
+        const progress = (status.progress / status.total) * 100;
+        document.getElementById('progressBar').style.width = `${progress}%`;
+        document.getElementById('progressText').textContent = `${status.progress} / ${status.total}`;
+        document.getElementById('completedCount').textContent = status.progress;
+        document.getElementById('statusText').textContent = status.status;
+        
+        // Update elapsed time
+        if (startTime) {
+            const elapsed = Math.floor((Date.now() - startTime) / 1000);
+            document.getElementById('elapsedTime').textContent = `${elapsed}s`;
+        }
+        
+        // Check if completed
+        if (status.status === 'completed') {
+            clearInterval(progressInterval);
+            batchResults = status.results || [];
+            showResults();
+            document.getElementById('progressSection').style.display = 'none';
+        } else if (status.status === 'failed') {
+            clearInterval(progressInterval);
+            showError(status.error || 'Batch investigation failed');
+            document.getElementById('progressSection').style.display = 'none';
+        }
+        
+    } catch (error) {
+        console.error('Failed to check progress:', error);
+    }
+}
+
+function cancelBatch() {
+    if (progressInterval) {
+        clearInterval(progressInterval);
+        progressInterval = null;
+    }
+    currentTaskId = null;
+    document.getElementById('progressSection').style.display = 'none';
+}
+
+function showResults() {
+    if (!batchResults || batchResults.length === 0) {
+        showError('No results available');
+        return;
+    }
+    
+    // Calculate summary statistics
+    const similarities = batchResults.map(r => r.final_similarity);
+    const iterations = batchResults.map(r => r.iterations);
+    
+    const avgSimilarity = similarities.reduce((a, b) => a + b, 0) / similarities.length;
+    const maxSimilarity = Math.max(...similarities);
+    const avgIterations = iterations.reduce((a, b) => a + b, 0) / iterations.length;
+    
+    // Update summary stats
+    document.getElementById('summaryStats').innerHTML = `
+        <div class="col-md-3">
+            <div class="card text-center">
+                <div class="card-body">
+                    <h5 class="text-primary">${batchResults.length}</h5>
+                    <small class="text-muted">Total Processed</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center">
+                <div class="card-body">
+                    <h5 class="text-success">${(avgSimilarity * 100).toFixed(1)}%</h5>
+                    <small class="text-muted">Avg Similarity</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center">
+                <div class="card-body">
+                    <h5 class="text-info">${(maxSimilarity * 100).toFixed(1)}%</h5>
+                    <small class="text-muted">Max Similarity</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center">
+                <div class="card-body">
+                    <h5 class="text-warning">${avgIterations.toFixed(1)}</h5>
+                    <small class="text-muted">Avg Iterations</small>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Populate results table
+    const tableBody = document.getElementById('resultsTableBody');
+    tableBody.innerHTML = '';
+    
+    batchResults.forEach((result, index) => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td>${index + 1}</td>
+            <td>
+                <div style="max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" 
+                     title="${result.description}">
+                    ${result.description}
+                </div>
+            </td>
+            <td>
+                <div class="d-flex align-items-center">
+                    <span class="me-2">${(result.final_similarity * 100).toFixed(1)}%</span>
+                    <div class="progress flex-grow-1" style="height: 6px; width: 60px;">
+                        <div class="progress-bar" style="width: ${result.final_similarity * 100}%"></div>
+                    </div>
+                </div>
+            </td>
+            <td>
+                <span class="badge bg-secondary">${result.strategy_name}</span>
+            </td>
+            <td>${result.iterations}</td>
+            <td>
+                <button class="btn btn-sm btn-outline-primary" onclick="viewResult(${index})">
+                    <i class="bi bi-eye"></i>
+                </button>
+            </td>
+        `;
+        tableBody.appendChild(row);
+    });
+    
+    document.getElementById('resultsSection').style.display = 'block';
+    document.getElementById('resultsSection').scrollIntoView({ behavior: 'smooth' });
+}
+
+function viewResult(index) {
+    const result = batchResults[index];
+    if (!result) return;
+    
+    const modalBody = document.getElementById('resultModalBody');
+    modalBody.innerHTML = `
+        <div class="row">
+            <div class="col-md-8">
+                <h6><i class="bi bi-file-text"></i> Description</h6>
+                <p>${result.description}</p>
+                
+                <h6><i class="bi bi-info-circle"></i> Details</h6>
+                <table class="table table-sm">
+                    <tr><th>Investigation ID:</th><td><code>${result.investigation_id}</code></td></tr>
+                    <tr><th>Strategy:</th><td>${result.strategy_name}</td></tr>
+                    <tr><th>Iterations:</th><td>${result.iterations}</td></tr>
+                    <tr><th>Index in Batch:</th><td>${index + 1}</td></tr>
+                </table>
+            </div>
+            <div class="col-md-4">
+                <h6><i class="bi bi-graph-up"></i> Similarity Score</h6>
+                <div class="text-center">
+                    <div class="display-6 text-primary">${(result.final_similarity * 100).toFixed(1)}%</div>
+                    <div class="progress mt-2" style="height: 12px;">
+                        <div class="progress-bar bg-primary" style="width: ${result.final_similarity * 100}%"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    new bootstrap.Modal(document.getElementById('resultModal')).show();
+}
+
+function exportResults() {
+    if (!batchResults || batchResults.length === 0) {
+        alert('No results to export');
+        return;
+    }
+    
+    const dataStr = JSON.stringify(batchResults, null, 2);
+    const dataBlob = new Blob([dataStr], {type: 'application/json'});
+    
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(dataBlob);
+    link.download = `batch_results_${new Date().toISOString().split('T')[0]}.json`;
+    link.click();
+}
+
+function showError(message) {
+    document.getElementById('errorMessage').textContent = message;
+    document.getElementById('errorAlert').style.display = 'block';
+    document.getElementById('errorAlert').scrollIntoView({ behavior: 'smooth' });
+}
+
+function hideError() {
+    document.getElementById('errorAlert').style.display = 'none';
+}
+</script>
+{% endblock %}
