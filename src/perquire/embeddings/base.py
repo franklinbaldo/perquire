@@ -3,9 +3,10 @@ Base embedding provider interface.
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional, Union
+from typing import List, Dict, Any, Optional, Union, Tuple
 import numpy as np
 from dataclasses import dataclass
+from functools import lru_cache
 
 from ..exceptions import EmbeddingError, ConfigurationError
 
@@ -25,6 +26,7 @@ class BaseEmbeddingProvider(ABC):
     
     This class defines the interface that all embedding providers must implement
     to work with Perquire's investigation system.
+    It includes LRU caching for embedding calls.
     """
     
     def __init__(self, config: Dict[str, Any]):
@@ -46,38 +48,68 @@ class BaseEmbeddingProvider(ABC):
             ConfigurationError: If configuration is invalid
         """
         pass
+
+    # --- Cached public methods ---
     
-    @abstractmethod
     def embed_text(self, text: str, **kwargs) -> EmbeddingResult:
         """
-        Generate embedding for a single text.
+        Generate embedding for a single text with caching.
         
         Args:
             text: Text to embed
-            **kwargs: Provider-specific parameters
+            **kwargs: Provider-specific parameters (must be hashable for caching)
             
         Returns:
             EmbeddingResult containing the embedding and metadata
-            
-        Raises:
-            EmbeddingError: If embedding generation fails
         """
-        pass
-    
-    @abstractmethod
+        kwargs_tuple = tuple(sorted(kwargs.items()))
+        return self._cached_execute_embed_text(text, kwargs_tuple=kwargs_tuple)
+
     def embed_batch(self, texts: List[str], **kwargs) -> List[EmbeddingResult]:
         """
-        Generate embeddings for a batch of texts.
+        Generate embeddings for a batch of texts with caching.
         
         Args:
             texts: List of texts to embed
-            **kwargs: Provider-specific parameters
+            **kwargs: Provider-specific parameters (must be hashable for caching)
             
         Returns:
             List of EmbeddingResult objects
-            
-        Raises:
-            EmbeddingError: If embedding generation fails
+        """
+        texts_tuple = tuple(texts) # Convert list to tuple for hashability
+        kwargs_tuple = tuple(sorted(kwargs.items()))
+        return self._cached_execute_embed_batch(texts_tuple, kwargs_tuple=kwargs_tuple)
+
+    # --- Internal cached execution methods ---
+
+    @lru_cache(maxsize=1024) # Adjust maxsize as needed
+    def _cached_execute_embed_text(self, text: str, kwargs_tuple: Tuple) -> EmbeddingResult:
+        """Internal cached method for single text embedding."""
+        kwargs_dict = dict(kwargs_tuple)
+        return self._execute_embed_text(text, **kwargs_dict)
+
+    @lru_cache(maxsize=128) # Adjust maxsize as needed for batches
+    def _cached_execute_embed_batch(self, texts_tuple: Tuple[str, ...], kwargs_tuple: Tuple) -> List[EmbeddingResult]:
+        """Internal cached method for batch text embedding."""
+        texts_list = list(texts_tuple)
+        kwargs_dict = dict(kwargs_tuple)
+        return self._execute_embed_batch(texts_list, **kwargs_dict)
+
+    # --- Abstract methods for concrete providers to implement ---
+
+    @abstractmethod
+    def _execute_embed_text(self, text: str, **kwargs) -> EmbeddingResult:
+        """
+        Core logic for generating embedding for a single text.
+        To be implemented by concrete providers.
+        """
+        pass
+
+    @abstractmethod
+    def _execute_embed_batch(self, texts: List[str], **kwargs) -> List[EmbeddingResult]:
+        """
+        Core logic for generating embeddings for a batch of texts.
+        To be implemented by concrete providers.
         """
         pass
     

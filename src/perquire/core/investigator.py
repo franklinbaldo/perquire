@@ -22,6 +22,11 @@ from ..exceptions import (
 
 logger = logging.getLogger(__name__)
 
+# For hashing cache keys
+import hashlib
+import json # For hashing complex dicts/lists
+from typing import Union, List, Dict, Any # Ensure Union, List, Dict, Any are available if not already
+
 
 class PerquireInvestigator:
     """
@@ -288,6 +293,16 @@ class PerquireInvestigator:
         
         finally:
             self._current_investigation = None
+
+    def _generate_hash_for_cache(self, data: Union[str, Dict, List, np.ndarray]) -> str:
+        """Generate SHA256 hash for cache keys."""
+        if isinstance(data, np.ndarray):
+            # Using tobytes() for a consistent representation of the array's data
+            return hashlib.sha256(data.tobytes()).hexdigest()
+        if isinstance(data, str):
+            return hashlib.sha256(data.encode('utf-8')).hexdigest()
+        # For dicts/lists, ensure consistent serialization (sort keys, no extra whitespace)
+        return hashlib.sha256(json.dumps(data, sort_keys=True, separators=(',', ':')).encode('utf-8')).hexdigest()
     
     def _validate_investigation_inputs(self, target_embedding: np.ndarray):
         """Validate investigation inputs."""
@@ -318,108 +333,239 @@ class PerquireInvestigator:
         current_description: str,
         current_similarity: float
     ) -> str:
-        """Generate a question for the current investigation phase."""
+        """Generate a question for the current investigation phase, with DB caching for LLM calls."""
+
+        # Prepare data for hashing LLM input
+        llm_input_data_for_cache = {
+            "type": "question_generation",
+            "current_description": current_description,
+            "target_similarity": round(current_similarity, 5), # Round float for stable hash
+            "phase": phase.value,
+            "previous_questions_summary": previous_questions[-5:],
+        }
+        input_hash = self._generate_hash_for_cache(llm_input_data_for_cache)
+
+        # 1. Check LLM question generation cache
+        if self.database_provider:
+            try:
+                cached_questions = self.database_provider.get_cached_llm_question_gen(input_hash)
+                if cached_questions and isinstance(cached_questions, list) and len(cached_questions) > 0:
+                    for q_from_cache in cached_questions:
+                        if q_from_cache not in previous_questions:
+                            logger.debug(f"LLM question_gen cache hit for input hash {input_hash}, using cached question: {q_from_cache[:30]}...")
+                            return q_from_cache
+                    logger.debug(f"LLM question_gen cache hit for input hash {input_hash}, but all were repeats.")
+                elif cached_questions is not None:
+                     logger.debug(f"LLM question_gen cache hit for input hash {input_hash}, but content was empty/invalid. Regenerating.")
+            except Exception as db_err:
+                logger.warning(f"Error checking LLM question_gen cache: {db_err}")
+
+        # 2. If not in cache or all cached questions were repeats, generate new questions
+        generated_question_list: Optional[List[str]] = None
+        final_question_to_use: Optional[str] = None
+
         try:
-            # Try LLM-based question generation first
             if hasattr(self.llm_provider, 'generate_questions'):
                 try:
-                    questions = self.llm_provider.generate_questions(
+                    generated_question_list = self.llm_provider.generate_questions(
                         current_description=current_description,
                         target_similarity=current_similarity,
                         phase=phase.value,
-                        previous_questions=previous_questions[-10:]  # Last 10 questions
+                        previous_questions=previous_questions[-10:]
                     )
                     
-                    if questions:
-                        # Return first new question that wasn't asked before
-                        for question in questions:
-                            if question not in previous_questions:
-                                return question
-                
-                except Exception as e:
-                    logger.warning(f"LLM question generation failed: {str(e)}")
+                    if generated_question_list:
+                        if self.database_provider:
+                            try: # Cache up to 5 generated questions
+                                self.database_provider.set_cached_llm_question_gen(input_hash, generated_question_list[:5])
+                            except Exception as db_err:
+                                logger.warning(f"Failed to cache LLM generated questions: {db_err}")
+
+                        for q_new in generated_question_list:
+                            if q_new not in previous_questions:
+                                final_question_to_use = q_new
+                                break
+                        if not final_question_to_use:
+                            logger.debug("LLM generated questions, but all were repeats of previous_questions.")
+                    else:
+                        logger.debug("LLM provider generate_questions returned empty list or None.")
+                except Exception as e_llm_gen:
+                    logger.warning(f"LLM question generation failed: {e_llm_gen}. Falling back to strategy if no question yet.")
             
-            # Fallback to strategy-based question generation
-            context = {
-                "current_description": current_description,
-                "current_similarity": current_similarity,
-                "iteration": len(previous_questions) + 1,
-                "phase": phase.value
-            }
-            
-            question = strategy.generate_question(
-                phase=phase,
-                context=context,
-                used_questions=previous_questions
-            )
-            
-            return question
-            
-        except Exception as e:
-            raise InvestigationError(f"Failed to generate question: {str(e)}")
-    
+            if not final_question_to_use: # Fallback to strategy
+                logger.debug("Falling back to strategy-based question generation.")
+                strategy_context = {
+                    "current_description": current_description,
+                    "current_similarity": current_similarity,
+                    "iteration": len(previous_questions) + 1,
+                    "phase": phase.value
+                }
+                strat_question = strategy.generate_question(
+                    phase=phase,
+                    context=strategy_context,
+                    used_questions=previous_questions
+                )
+                final_question_to_use = strat_question
+
+            if not final_question_to_use or not final_question_to_use.strip():
+                logger.error("Failed to generate any valid question. Using a generic fallback.")
+                return f"What are the general properties or category of the item represented by the embedding? (iteration {len(previous_questions)+1})"
+
+            return final_question_to_use.strip()
+
+        except Exception as e: # Catch-all for unexpected errors during generation logic
+            logger.error(f"Critical error in _generate_question: {e}")
+            # Provide a very generic fallback to prevent crash
+            return f"Describe any known aspect of the embedding. (iteration {len(previous_questions)+1}, error recovery)"
+
     def _calculate_question_similarity(self, question: str, target_embedding: np.ndarray) -> float:
-        """Calculate similarity between question and target embedding."""
+        """
+        Calculate similarity between question and target embedding, using DB cache for
+        both question embeddings and similarity scores.
+        """
+        question_text_hash = self._generate_hash_for_cache(question)
+        # Assuming target_embedding is a numpy array. Hash its bytes.
+        target_embedding_hash = self._generate_hash_for_cache(target_embedding)
+
+        # 1. Check for cached similarity score
+        if self.database_provider:
+            try:
+                cached_score = self.database_provider.get_cached_similarity(question_text_hash, target_embedding_hash)
+                if cached_score is not None:
+                    logger.debug(f"Similarity cache hit for question '{question[:30]}...'")
+                    return float(cached_score)
+            except Exception as db_err: # Catch specific DB errors if possible
+                logger.warning(f"Error checking similarity cache: {db_err}")
+
+        # 2. Get or generate question embedding (with DB caching)
+        question_embedding: Optional[np.ndarray] = None
+
+        if self.database_provider:
+            try:
+                cached_q_emb = self.database_provider.get_cached_embedding(question_text_hash)
+                if cached_q_emb is not None:
+                    question_embedding = cached_q_emb
+                    logger.debug(f"Question embedding DB cache hit for '{question[:30]}...'")
+            except Exception as db_err:
+                logger.warning(f"Error checking question embedding DB cache: {db_err}")
+
+        if question_embedding is None: # Not in DB cache, try provider (which has its own LRU)
+            try:
+                emb_result = self.embedding_provider.embed_text(question) # This uses LRU
+                question_embedding = emb_result.embedding
+
+                if self.database_provider and question_embedding is not None: # Check if embedding was successful
+                    try:
+                        # Calculate norm for storage, ensure it's float
+                        emb_norm = float(np.linalg.norm(question_embedding))
+                        if not np.isfinite(emb_norm): emb_norm = 0.0 # Handle potential NaN/inf from norm
+
+                        self.database_provider.set_cached_embedding(
+                            text_content=question,
+                            embedding=question_embedding,
+                            model_name=emb_result.model or self.embedding_provider.get_model_info().get('model', 'unknown'),
+                            provider_name=self.embedding_provider.get_model_info().get('provider', 'unknown'),
+                            dimensions=emb_result.dimensions or len(question_embedding),
+                            embedding_norm=emb_norm,
+                            metadata={'source': 'investigator_cache_fill', 'original_text_hash': question_text_hash}
+                        )
+                        logger.debug(f"Question embedding for '{question[:30]}...' cached to DB.")
+                    except Exception as db_err:
+                        logger.warning(f"Failed to cache question embedding to DB: {db_err}")
+            except Exception as e:
+                logger.error(f"Failed to generate embedding for question '{question}': {e}")
+                raise EmbeddingError(f"Failed to generate embedding for question similarity calculation: {str(e)}")
+
+        if question_embedding is None:
+            raise EmbeddingError(f"Could not obtain embedding for question: {question}")
+
+        # 3. Calculate cosine similarity
         try:
-            # Generate embedding for question
-            question_result = self.embedding_provider.embed_text(question)
-            question_embedding = question_result.embedding
-            
-            # Calculate cosine similarity
             similarity = cosine_similarity(target_embedding, question_embedding)
-            
-            # Ensure similarity is in valid range
-            similarity = max(0.0, min(1.0, similarity))
-            
-            return similarity
-            
+            similarity = max(0.0, min(1.0, similarity)) # Ensure valid range
         except Exception as e:
-            raise EmbeddingError(f"Failed to calculate question similarity: {str(e)}")
+            logger.error(f"Error computing cosine_similarity for '{question}': {e}")
+            raise EmbeddingError(f"Failed to compute cosine similarity: {str(e)}")
+
+        # 4. Cache the newly calculated similarity score in DB
+        if self.database_provider:
+            try:
+                self.database_provider.set_cached_similarity(question_text_hash, target_embedding_hash, similarity)
+                logger.debug(f"Similarity score for '{question[:30]}...' cached to DB.")
+            except Exception as db_err:
+                logger.warning(f"Failed to cache similarity score to DB: {db_err}")
+
+        return similarity
     
     def _synthesize_description(
         self,
         questions_and_scores: List[Dict[str, Any]],
         final_similarity: float
     ) -> str:
-        """Synthesize final description from investigation results."""
+        """Synthesize final description from investigation results, with DB caching for LLM calls."""
+
+        # Prepare data for hashing LLM input
+        stable_q_and_s = sorted(questions_and_scores, key=lambda x: x.get("similarity", 0.0), reverse=True)[:10]
+        stable_q_and_s_for_hash = sorted(stable_q_and_s, key=lambda x: x.get("question", ""))
+
+        llm_input_data_for_cache = {
+            "type": "synthesis",
+            "questions_and_scores_summary": [{"q": item["question"], "s": round(item["similarity"], 5)} for item in stable_q_and_s_for_hash],
+            "final_similarity": round(final_similarity, 5)
+        }
+        input_hash = self._generate_hash_for_cache(llm_input_data_for_cache)
+
+        # 1. Check LLM synthesis cache
+        if self.database_provider:
+            try:
+                cached_description = self.database_provider.get_cached_llm_synthesis(input_hash)
+                if cached_description is not None:
+                    logger.debug(f"LLM synthesis cache hit for input hash {input_hash}.")
+                    return cached_description
+            except Exception as db_err:
+                logger.warning(f"Error checking LLM synthesis cache: {db_err}")
+
+        # 2. If not in cache, generate new description
+        description_to_cache: Optional[str] = None
         try:
-            # Try LLM-based synthesis first
             if hasattr(self.llm_provider, 'synthesize_description'):
                 try:
-                    description = self.llm_provider.synthesize_description(
+                    llm_description = self.llm_provider.synthesize_description(
                         questions_and_scores=questions_and_scores,
                         final_similarity=final_similarity
                     )
-                    
-                    if description and description.strip():
-                        return description.strip()
-                
-                except Exception as e:
-                    logger.warning(f"LLM description synthesis failed: {str(e)}")
+                    if llm_description and llm_description.strip():
+                        description_to_cache = llm_description.strip()
+                except Exception as e_llm_synth:
+                    logger.warning(f"LLM description synthesis failed: {e_llm_synth}. Falling back.")
             
-            # Fallback to simple best question approach
-            if questions_and_scores:
-                # Sort by similarity and take the best questions
-                sorted_questions = sorted(
-                    questions_and_scores, 
-                    key=lambda x: x["similarity"], 
-                    reverse=True
-                )
-                
-                best_questions = sorted_questions[:3]
-                
-                if len(best_questions) == 1:
-                    return best_questions[0]["question"]
+            if not description_to_cache: # Fallback
+                if questions_and_scores:
+                    sorted_by_sim = sorted(questions_and_scores, key=lambda x: x.get("similarity", 0.0), reverse=True)
+                    best_questions = sorted_by_sim[:3]
+                    if len(best_questions) == 1:
+                        description_to_cache = best_questions[0]["question"]
+                    elif best_questions:
+                        descriptions_parts = [q["question"] for q in best_questions]
+                        description_to_cache = f"Likely represents concepts such as: '{descriptions_parts[0]}'"
+                        if len(descriptions_parts) > 1: description_to_cache += f" and '{descriptions_parts[1]}'."
+                        else: description_to_cache += "."
+                    else:
+                        description_to_cache = "Unable to determine description (no data)."
                 else:
-                    # Combine top questions
-                    descriptions = [q["question"] for q in best_questions]
-                    return f"Likely represents: {' and '.join(descriptions[:2])}"
+                    description_to_cache = "Unable to determine description (no data)."
+
+            if self.database_provider and description_to_cache:
+                try:
+                    self.database_provider.set_cached_llm_synthesis(input_hash, description_to_cache)
+                except Exception as db_err:
+                    logger.warning(f"Failed to cache synthesized description: {db_err}")
             
-            return "Unable to determine description from investigation"
-            
+            return description_to_cache if description_to_cache else "Error in description synthesis process."
+
         except Exception as e:
-            logger.warning(f"Description synthesis failed: {str(e)}")
-            return "Error during description synthesis"
+            logger.error(f"Critical error in _synthesize_description: {e}")
+            return "Error during description synthesis process."
     
     def _get_model_config(self) -> Dict[str, Any]:
         """Get current model configuration."""

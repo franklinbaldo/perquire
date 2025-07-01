@@ -1,120 +1,31 @@
 """
-Provider factory for LLM and embedding services.
-Lazy-loads dependencies to avoid ImportError for unused providers.
+Utility functions related to provider dependencies and availability.
+
+This module helps in checking if the necessary dependencies for various
+LLM and embedding providers are installed. It's primarily intended for
+user feedback, e.g., in a CLI.
 """
 
-from typing import Dict, Any, Optional
-from abc import ABC, abstractmethod
+from typing import Dict, Any
 
+# Consolidate custom exceptions here or ensure they are in perquire.exceptions
 class ProviderError(Exception):
-    """Base exception for provider-related errors."""
+    """Base exception for provider-related errors, typically dependency issues."""
     pass
 
 class ProviderNotInstalledError(ProviderError):
     """Raised when required dependencies for a provider are not installed."""
     pass
 
-class EmbeddingProvider(ABC):
-    """Abstract base class for embedding providers."""
-    
-    @abstractmethod
-    async def embed(self, text: str) -> list[float]:
-        """Generate embedding for text."""
-        pass
 
-class LLMProvider(ABC):
-    """Abstract base class for LLM providers."""
-    
-    @abstractmethod
-    async def generate(self, prompt: str, **kwargs) -> str:
-        """Generate text completion."""
-        pass
-
-def get_embedding_provider(name: str, **config) -> EmbeddingProvider:
-    """Get embedding provider by name with lazy loading."""
-    
-    if name == "openai":
-        try:
-            from .openai_provider import OpenAIEmbeddingProvider
-            return OpenAIEmbeddingProvider(**config)
-        except ImportError:
-            raise ProviderNotInstalledError(
-                f"OpenAI provider requires 'api-openai' extra.\n"
-                f"Install with: pip install perquire[api-openai]"
-            )
-    
-    elif name == "gemini":
-        try:
-            from .gemini_provider import GeminiEmbeddingProvider
-            return GeminiEmbeddingProvider(**config)
-        except ImportError:
-            raise ProviderNotInstalledError(
-                f"Gemini provider requires 'api-gemini' extra.\n"
-                f"Install with: pip install perquire[api-gemini]"
-            )
-    
-    elif name == "sentence-transformers" or name == "sbert":
-        try:
-            from .local_provider import SentenceTransformerProvider
-            return SentenceTransformerProvider(**config)
-        except ImportError:
-            raise ProviderNotInstalledError(
-                f"Local embeddings require 'local-embeddings' extra.\n"
-                f"Install with: pip install perquire[local-embeddings]"
-            )
-    
-    else:
-        raise ProviderError(f"Unknown embedding provider: {name}")
-
-def get_llm_provider(name: str, **config) -> LLMProvider:
-    """Get LLM provider by name with lazy loading."""
-    
-    if name == "openai":
-        try:
-            from .openai_provider import OpenAILLMProvider
-            return OpenAILLMProvider(**config)
-        except ImportError:
-            raise ProviderNotInstalledError(
-                f"OpenAI provider requires 'api-openai' extra.\n"
-                f"Install with: pip install perquire[api-openai]"
-            )
-    
-    elif name == "gemini":
-        try:
-            from .gemini_provider import GeminiLLMProvider
-            return GeminiLLMProvider(**config)
-        except ImportError:
-            raise ProviderNotInstalledError(
-                f"Gemini provider requires 'api-gemini' extra.\n"
-                f"Install with: pip install perquire[api-gemini]"
-            )
-    
-    elif name == "anthropic":
-        try:
-            from .anthropic_provider import AnthropicLLMProvider
-            return AnthropicLLMProvider(**config)
-        except ImportError:
-            raise ProviderNotInstalledError(
-                f"Anthropic provider requires 'api-anthropic' extra.\n"
-                f"Install with: pip install perquire[api-anthropic]"
-            )
-    
-    elif name == "ollama":
-        try:
-            from .ollama_provider import OllamaLLMProvider
-            return OllamaLLMProvider(**config)
-        except ImportError:
-            raise ProviderNotInstalledError(
-                f"Ollama provider requires 'api-ollama' extra.\n"
-                f"Install with: pip install perquire[api-ollama]"
-            )
-    
-    else:
-        raise ProviderError(f"Unknown LLM provider: {name}")
-
+# This function can be used by a CLI to inform users about optional dependencies.
 def list_available_providers() -> Dict[str, Dict[str, Any]]:
-    """List all available providers and their installation status."""
+    """
+    List all supported providers and their installation status for optional extras.
     
+    This checks if the core libraries for each provider are importable.
+    Actual functionality also depends on API keys and correct configuration.
+    """
     providers = {
         "embedding": {
             "openai": {"extra": "api-openai", "installed": False},
