@@ -15,7 +15,8 @@
       "Bash(python:*)",
       "Bash(source:*)",
       "Bash(uv run:*)",
-      "Bash(uv add:*)"
+      "Bash(uv add:*)",
+      "Bash(mkdir:*)"
     ],
     "deny": []
   }
