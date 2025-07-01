@@ -109,4 +109,97 @@ bandit.update(action_id, state, reward)
 You don’t need a swarm of PPO agents—just a lean contextual bandit that *learns which question template pays off fastest* given the current similarity landscape and cache state.  It’s two files of code, one Grafana panel, and a real differentiator no competitor ships yet.
 
 [1]: https://arxiv.org/abs/2506.17670?utm_source=chatgpt.com "Online Multi-LLM Selection via Contextual Bandits under ... - arXiv"
+
+
+Below is a **self-contained “RL-weights versioning” blueprint** you can paste straight into `docs/rl_weights.md` (or a new section in `architecture.md`).
+Everything sits inside the fence so it travels cleanly through PR reviews.
+
+````markdown
+## 📦 RL-Weights Snapshot & Versioning Scheme
+
+### 1. Naming & Layout
+| Object | Example key | Why |
+|--------|-------------|-----|
+| **Snapshot** | `rl/weights/v1.0.3/lin_ts_state.zst` | Semantic tag → easy human diff |
+| **Signature** | `rl/weights/v1.0.3/lin_ts_state.zst.sig` | Detached Ed25519 for tamper-proofing |
+| **Metadata**  | `rl/weights/manifest.jsonl` | Pointer list with SHA-256, ETag, size, created_at |
+
+**Manifest line**
+```json
+{  
+  "version": "1.0.3",
+  "url": "https://archive.org/download/perquire-cache/rl/weights/v1.0.3/lin_ts_state.zst",
+  "sha256": "ab…cd",
+  "git_commit": "8f4c2b1",
+  "d": 256,
+  "k": 50,
+  "samples": 187_432,
+  "created_at": "2025-07-01T18:00:12Z"
+}
+````
+
+---
+
+### 2. Publisher workflow (CI job, runs nightly)
+
+```bash
+# merge local deltas ➜ new posterior
+python -m perquire.rl.merge_deltas --out lin_ts_state.zst
+
+# sign + upload
+gpg --detach-sign --armor lin_ts_state.zst               # .sig
+aws --endpoint https://s3.us.archive.org \
+    s3 cp lin_ts_state.zst        s3://perquire-cache/rl/weights/v$TAG/
+aws s3 cp lin_ts_state.zst.sig    s3://perquire-cache/rl/weights/v$TAG/
+
+# append manifest entry atomically
+python scripts/update_manifest.py \
+       --ver $TAG --file lin_ts_state.zst --sig lin_ts_state.zst.sig
+```
+
+`$TAG` = `$(git describe --tags --abbrev=0)` → `1.0.3`.
+
+---
+
+### 3. Consumer boot sequence
+
+```python
+from perquire.rl.loader import fetch_latest_weights
+
+weights = fetch_latest_weights(
+    manifest_url="https://archive.org/download/perquire-cache/rl/weights/manifest.jsonl",
+    max_age_days=7,         # fail-soft if offline
+    verify_sig=True
+)
+bandit.load_state(weights)
+```
+
+*If offline or signature/commit mismatch:* fall back to zero-init → warm-start from local cache.
+
+---
+
+### 4. Version bump rules
+
+1. **Patch (x.y.Δ)** – same algorithm & hyper-params, just more data.
+2. **Minor (x.Δ.z)** – hyper-param change (d, k) or bug-fix in featurizer.
+3. **Major (Δ.y.z)** – new RL algorithm → incompatible state shape (e.g., switch from LinTS → neural-bandit).
+
+Clients ignore snapshots whose **major** ≠ compiled-in `RL_STATE_MAJOR`.
+
+---
+
+### 5. Governance cheatsheet
+
+| Guard-rail | Action                                                                          |   |   |   |                                           |
+| ---------- | ------------------------------------------------------------------------------- | - | - | - | ----------------------------------------- |
+| Tampering  | Ed25519 sig; reject on verify fail                                              |   |   |   |                                           |
+| Rollback   | Clients store N previous snapshots; if newest corrupt, fall back                |   |   |   |                                           |
+| Drift      | Snapshot size or                                                                |   | A |   | ₂ deviates >2× median → CI aborts publish |
+| Audit      | Each manifest entry keeps `git_commit`; you can reproduce the weights from logs |   |   |   |                                           |
+
+> **TL;DR** — one immutable folder per semantic version, nightly CI publishes a signed snapshot and updates a single manifest line.  The client always knows *exactly* which posterior generated a decision and can roll back or reproduce on demand.
+
+```
+```
+
 [2]: https://huggingface.co/papers?q=Query-Mixup&utm_source=chatgpt.com "Daily Papers - Hugging Face"
