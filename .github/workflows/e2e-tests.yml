@@ -1,0 +1,50 @@
+name: Perquire E2E Tests
+
+on:
+  push:
+    branches: [main] # Or your primary branch, e.g., master
+  pull_request:
+    branches: [main]
+  workflow_dispatch: # Allows manual triggering
+
+jobs:
+  end-to-end-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15 # Overall job timeout
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.9' # Specify a Python version consistent with project
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        # Install the project in editable mode with extras needed for Gemini and dev tools
+        # dev extras might include pytest or other testing utilities if the script uses them directly
+        # api-gemini is crucial for the E2E test to interact with the Gemini API
+        pip install -e .[api-gemini,dev]
+        # Install numpy if not already included by 'dev' or 'api-gemini' (it's used by the test script)
+        pip install numpy
+
+    - name: Run E2E Tests
+      env:
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        # Any other environment variables needed by the tests
+      run: |
+        python tests/e2e/run_e2e_tests.py
+
+    # Optional: Upload test artifacts (e.g., logs, reports) if the script generates them
+    # - name: Upload E2E Test Artifacts
+    #   if: always() # Run this step even if previous steps fail, to get logs
+    #   uses: actions/upload-artifact@v3
+    #   with:
+    #     name: e2e-test-artifacts
+    #     path: |
+    #       path/to/your/logs/
+    #       path/to/your/reports/
