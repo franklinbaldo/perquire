@@ -11,10 +11,8 @@ __author__ = "Franklin Baldo"
 __email__ = "franklinbaldo@gmail.com"
 
 # Lightweight core - only expose provider factory functions
-from .providers import get_embedding_provider, get_llm_provider, list_available_providers
+from .providers import list_available_providers
 
 __all__ = [
-    "get_embedding_provider",
-    "get_llm_provider", 
     "list_available_providers",
 ]
