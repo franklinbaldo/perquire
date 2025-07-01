@@ -140,4 +140,76 @@ def test_base_embedding_provider_batch_caching():
     assert provider._execute_embed_batch_call_count == 3 # Cached
     assert len(batch_res3) == len(batch_res4)
 
-```
+
+def test_llm_registry_set_default_provider(fresh_llm_registry): # Assuming fresh_llm_registry fixture
+    registry = fresh_llm_registry
+    provider1 = DummyLLMProvider()
+    provider2 = DummyLLMProvider()
+    registry.register_provider("llm1", provider1)
+    registry.register_provider("llm2", provider2) # Default is llm1 initially
+
+    assert registry.get_provider() == provider1
+    registry.set_default_provider("llm2")
+    assert registry.get_provider() == provider2
+
+    with pytest.raises(LLMProviderError, match="Provider 'unknown_llm' not found"):
+        registry.set_default_provider("unknown_llm")
+
+
+def test_llm_registry_get_healthy_providers(fresh_llm_registry):
+    registry = fresh_llm_registry
+    healthy_provider = DummyLLMProvider()
+    unhealthy_provider = DummyLLMProvider()
+    unhealthy_provider.is_available = MagicMock(return_value=False) # Make it unhealthy by is_available
+    # Or mock health_check directly for more control if needed:
+    healthy_provider.health_check = MagicMock(return_value={"status": "healthy"})
+    unhealthy_provider.health_check = MagicMock(return_value={"status": "unhealthy", "reason": "test"})
+
+
+    registry.register_provider("healthy_llm", healthy_provider)
+    registry.register_provider("unhealthy_llm", unhealthy_provider)
+
+    healthy_list = registry.get_healthy_providers()
+    assert "healthy_llm" in healthy_list
+    assert "unhealthy_llm" not in healthy_list
+    healthy_provider.health_check.assert_called_once()
+    unhealthy_provider.health_check.assert_called_once()
+
+
+def test_embedding_registry_set_default_provider(fresh_embedding_registry):
+    registry = fresh_embedding_registry
+    provider1 = DummyEmbeddingProvider()
+    provider2 = DummyEmbeddingProvider()
+    registry.register_provider("emb1", provider1)
+    registry.register_provider("emb2", provider2)
+
+    assert registry.get_provider() == provider1 # First registered becomes default
+    registry.set_default_provider("emb2")
+    assert registry.get_provider() == provider2
+
+    with pytest.raises(EmbeddingError, match="Provider 'unknown_emb' not found"):
+        registry.set_default_provider("unknown_emb")
+
+
+def test_embedding_registry_get_healthy_providers(fresh_embedding_registry):
+    registry = fresh_embedding_registry
+    healthy_provider = DummyEmbeddingProvider()
+    unhealthy_provider = DummyEmbeddingProvider()
+
+    healthy_provider.health_check = MagicMock(return_value={"status": "healthy"})
+    unhealthy_provider.health_check = MagicMock(return_value={"status": "unhealthy", "reason": "test fail"})
+
+    registry.register_provider("healthy_emb", healthy_provider)
+    registry.register_provider("unhealthy_emb", unhealthy_provider)
+
+    healthy_list = registry.get_healthy_providers()
+    assert "healthy_emb" in healthy_list
+    assert "unhealthy_emb" not in healthy_list
+    healthy_provider.health_check.assert_called_once()
+    unhealthy_provider.health_check.assert_called_once()
+
+# Need a fixture for LLM Registry as well for consistency
+@pytest.fixture
+def fresh_llm_registry():
+    registry = LLMProviderRegistry()
+    return registry

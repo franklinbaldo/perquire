@@ -176,4 +176,182 @@ def test_investigation_loop_runs_and_completes(mock_llm_provider_instance, mock_
     assert mock_convergence_detector_instance.should_continue.call_count == 3
     # Strategy's determine_phase should be called
     assert mock_strategy_instance.determine_phase.call_count == 3
-```
+
+
+def test_investigation_uses_strategy_question_gen_fallback(mock_llm_provider_instance, mock_embedding_provider_instance, mock_strategy_instance, mock_convergence_detector_instance):
+    """Test that QuestioningStrategy.generate_question is used if LLM provider lacks generate_questions."""
+    # Remove generate_questions from the mock LLM provider for this test
+    del mock_llm_provider_instance.generate_questions
+
+    target_embedding = np.random.rand(mock_embedding_provider_instance.dim).astype(np.float32)
+
+    mock_convergence_detector_instance.should_continue = MagicMock(return_value=ConvergenceResult(converged=True, reason=ConvergenceReason.MAX_ITERATIONS, confidence=1.0, iteration_reached=1, final_similarity=0.3, similarity_improvement=0.1, plateau_length=0, statistical_metrics={}, recommendation="stop"))
+    mock_strategy_instance.max_iterations = 1 # Ensure only one iteration
+
+    investigator = PerquireInvestigator(
+        llm_provider=mock_llm_provider_instance,
+        embedding_provider=mock_embedding_provider_instance,
+        questioning_strategy=mock_strategy_instance,
+        convergence_detector=mock_convergence_detector_instance
+    )
+
+    investigator.investigate(target_embedding, verbose=False)
+
+    # generate_question on the strategy mock should be called
+    mock_strategy_instance.generate_question.assert_called_once()
+
+
+@pytest.fixture
+def mock_db_provider_instance():
+    db_provider = MagicMock()
+    db_provider.save_investigation = MagicMock()
+    # Mock other DB methods if they are called directly by PerquireInvestigator during a typical flow
+    db_provider.get_cached_llm_question_gen = MagicMock(return_value=None)
+    db_provider.set_cached_llm_question_gen = MagicMock()
+    db_provider.get_cached_embedding = MagicMock(return_value=None)
+    db_provider.set_cached_embedding = MagicMock()
+    db_provider.get_cached_similarity = MagicMock(return_value=None)
+    db_provider.set_cached_similarity = MagicMock()
+    db_provider.get_cached_llm_synthesis = MagicMock(return_value=None)
+    db_provider.set_cached_llm_synthesis = MagicMock()
+    return db_provider
+
+def test_investigation_saves_to_database(mock_llm_provider_instance, mock_embedding_provider_instance, mock_strategy_instance, mock_convergence_detector_instance, mock_db_provider_instance):
+    target_embedding = np.random.rand(mock_embedding_provider_instance.dim).astype(np.float32)
+    mock_convergence_detector_instance.should_continue = MagicMock(return_value=ConvergenceResult(converged=True, reason=ConvergenceReason.MAX_ITERATIONS, confidence=1.0, iteration_reached=1, final_similarity=0.3, similarity_improvement=0.1, plateau_length=0, statistical_metrics={}, recommendation="stop"))
+    mock_strategy_instance.max_iterations = 1
+
+
+    investigator = PerquireInvestigator(
+        llm_provider=mock_llm_provider_instance,
+        embedding_provider=mock_embedding_provider_instance,
+        questioning_strategy=mock_strategy_instance,
+        convergence_detector=mock_convergence_detector_instance,
+        database_provider=mock_db_provider_instance
+    )
+
+    # Test saving enabled (default)
+    investigator.investigate(target_embedding, save_to_database=True, verbose=False)
+    mock_db_provider_instance.save_investigation.assert_called_once()
+
+    # Test saving disabled
+    mock_db_provider_instance.save_investigation.reset_mock() # Reset mock for the next call
+    investigator.investigate(target_embedding, save_to_database=False, verbose=False)
+    mock_db_provider_instance.save_investigation.assert_not_called()
+
+
+def test_investigate_batch_processes_multiple_embeddings(mock_llm_provider_instance, mock_embedding_provider_instance, mock_strategy_instance, mock_convergence_detector_instance):
+    num_embeddings = 3
+    embeddings_dim = mock_embedding_provider_instance.dim
+    target_embeddings = [np.random.rand(embeddings_dim).astype(np.float32) for _ in range(num_embeddings)]
+
+    mock_convergence_detector_instance.should_continue = MagicMock(return_value=ConvergenceResult(converged=True, reason=ConvergenceReason.MAX_ITERATIONS, confidence=1.0, iteration_reached=1, final_similarity=0.3, similarity_improvement=0.1, plateau_length=0, statistical_metrics={}, recommendation="stop"))
+    mock_strategy_instance.max_iterations = 1
+
+    investigator = PerquireInvestigator(
+        llm_provider=mock_llm_provider_instance,
+        embedding_provider=mock_embedding_provider_instance,
+        questioning_strategy=mock_strategy_instance,
+        convergence_detector=mock_convergence_detector_instance
+    )
+
+    # Patch the investigate method to track calls without running full logic
+    with patch.object(investigator, 'investigate', wraps=investigator.investigate) as mock_single_investigate:
+        results = investigator.investigate_batch(target_embeddings, verbose=False)
+
+        assert len(results) == num_embeddings
+        assert mock_single_investigate.call_count == num_embeddings
+        for i in range(num_embeddings):
+            # Check that the correct embedding was passed to each call
+            passed_embedding_arg = mock_single_investigate.call_args_list[i][1]['target_embedding']
+            np.testing.assert_array_equal(passed_embedding_arg, target_embeddings[i])
+
+
+def test_health_check_structure(mock_llm_provider_instance, mock_embedding_provider_instance, mock_db_provider_instance):
+    # Case 1: All healthy
+    mock_llm_provider_instance.health_check = MagicMock(return_value={"status": "healthy"})
+    mock_embedding_provider_instance.health_check = MagicMock(return_value={"status": "healthy"})
+    mock_db_provider_instance.health_check = MagicMock(return_value={"status": "healthy"})
+
+    investigator = PerquireInvestigator(
+        llm_provider=mock_llm_provider_instance,
+        embedding_provider=mock_embedding_provider_instance,
+        database_provider=mock_db_provider_instance
+    )
+    health = investigator.health_check()
+    assert health["overall_status"] == "healthy"
+    assert health["components"]["llm_provider"]["status"] == "healthy"
+    assert health["components"]["embedding_provider"]["status"] == "healthy"
+    assert health["components"]["database_provider"]["status"] == "healthy"
+
+    # Case 2: One unhealthy
+    mock_llm_provider_instance.health_check = MagicMock(return_value={"status": "unhealthy", "reason": "LLM down"})
+    health = investigator.health_check()
+    assert health["overall_status"] == "unhealthy"
+    assert health["components"]["llm_provider"]["status"] == "unhealthy"
+
+    # Case 3: DB not configured
+    investigator_no_db = PerquireInvestigator(
+        llm_provider=mock_llm_provider_instance, # Still unhealthy from above
+        embedding_provider=mock_embedding_provider_instance,
+        database_provider=None
+    )
+    mock_llm_provider_instance.health_check = MagicMock(return_value={"status": "healthy"}) # Make LLM healthy again for this sub-test
+    mock_embedding_provider_instance.health_check = MagicMock(return_value={"status": "healthy"})
+
+    health_no_db = investigator_no_db.health_check()
+    assert health_no_db["overall_status"] == "degraded" # degraded because DB is not configured
+    assert health_no_db["components"]["database_provider"]["status"] == "not_configured"
+
+
+def test_investigation_uses_db_cache_for_question_generation(
+    mock_llm_provider_instance,
+    mock_embedding_provider_instance,
+    mock_strategy_instance,
+    mock_convergence_detector_instance,
+    mock_db_provider_instance):
+
+    target_embedding = np.random.rand(mock_embedding_provider_instance.dim).astype(np.float32)
+    # Setup convergence to run for one iteration
+    mock_convergence_detector_instance.should_continue = MagicMock(return_value=ConvergenceResult(converged=True, reason=ConvergenceReason.MAX_ITERATIONS, confidence=1.0, iteration_reached=1, final_similarity=0.3, similarity_improvement=0.1, plateau_length=0, statistical_metrics={}, recommendation="stop"))
+    mock_strategy_instance.max_iterations = 1
+
+    # LLM's generate_questions is a MagicMock by default in mock_llm_provider_instance
+    # We can add a side_effect to it to track calls
+    mock_llm_provider_instance.generate_questions = MagicMock(return_value=["LLM generated question?"])
+
+    # Simulate cache hit for question generation
+    cached_questions = ["Cached question?"]
+    mock_db_provider_instance.get_cached_llm_question_gen.return_value = cached_questions
+
+    investigator = PerquireInvestigator(
+        llm_provider=mock_llm_provider_instance,
+        embedding_provider=mock_embedding_provider_instance,
+        questioning_strategy=mock_strategy_instance,
+        convergence_detector=mock_convergence_detector_instance,
+        database_provider=mock_db_provider_instance
+    )
+
+    result = investigator.investigate(target_embedding, verbose=False)
+
+    # Assert that DB cache was checked
+    mock_db_provider_instance.get_cached_llm_question_gen.assert_called_once()
+    # Assert that LLM was NOT called because of cache hit
+    mock_llm_provider_instance.generate_questions.assert_not_called()
+    # Assert that the cached question was used (can be inferred if the result.question_history contains it)
+    assert len(result.question_history) == 1
+    assert result.question_history[0].question == "Cached question?"
+
+    # Reset mocks and simulate cache miss
+    mock_db_provider_instance.reset_mock()
+    mock_llm_provider_instance.reset_mock() # Reset the entire mock to clear call counts
+    mock_llm_provider_instance.generate_questions = MagicMock(return_value=["Fresh LLM question?"]) # Re-attach generate_questions
+    mock_db_provider_instance.get_cached_llm_question_gen.return_value = None # Cache miss
+
+    result_cache_miss = investigator.investigate(target_embedding, verbose=False)
+
+    mock_db_provider_instance.get_cached_llm_question_gen.assert_called_once()
+    mock_llm_provider_instance.generate_questions.assert_called_once()
+    mock_db_provider_instance.set_cached_llm_question_gen.assert_called_once()
+    assert len(result_cache_miss.question_history) == 1
+    assert result_cache_miss.question_history[0].question == "Fresh LLM question?"

@@ -128,4 +128,109 @@ def test_convergence_error_handling(detector):
         with pytest.raises(ConvergenceError, match="Failed to analyze convergence: Test error"):
             detector.should_continue([0.1,0.2,0.3], current_iteration=3)
 
-```
+# --- More specific tests for helper methods ---
+
+def test_detect_plateau_logic(detector, detector_defaults):
+    # Test case 1: Clear plateau
+    scores_plateau = [0.5, 0.5001, 0.5000, 0.5002] # variance should be low
+    plateau_result = detector._detect_plateau(scores_plateau)
+    assert plateau_result["is_plateau"]
+    assert plateau_result["plateau_length"] >= detector_defaults["convergence_window"] # or specific expected length
+    assert plateau_result["variance"] <= detector_defaults["plateau_threshold"]
+
+    # Test case 2: No plateau, scores increasing
+    scores_increasing = [0.5, 0.6, 0.7, 0.8]
+    plateau_result_increasing = detector._detect_plateau(scores_increasing)
+    assert not plateau_result_increasing["is_plateau"]
+    assert plateau_result_increasing["variance"] > detector_defaults["plateau_threshold"]
+
+    # Test case 3: Scores too short for a full window
+    scores_short = [0.5, 0.5001]
+    plateau_result_short = detector._detect_plateau(scores_short)
+    assert not plateau_result_short["is_plateau"]
+    assert plateau_result_short["plateau_length"] == 0
+
+    # Test case 4: Plateau at the end of a longer series
+    scores_long_plateau_end = [0.1, 0.2, 0.3, 0.5, 0.5001, 0.5000, 0.5002]
+    plateau_result_long_end = detector._detect_plateau(scores_long_plateau_end)
+    assert plateau_result_long_end["is_plateau"]
+    assert plateau_result_long_end["plateau_length"] >= detector_defaults["convergence_window"]
+
+
+def test_calculate_recent_improvement_logic(detector, detector_defaults):
+    # Test case 1: Clear improvement
+    scores_improving = [0.1, 0.2, 0.3, 0.4] # improvements: 0.1, 0.1, 0.1. Mean = 0.1
+    # Ensure enough scores for the window
+    scores_improving_padded = [0.0] * (detector_defaults["convergence_window"] - len(scores_improving)%detector_defaults["convergence_window"] if len(scores_improving)%detector_defaults["convergence_window"]!=0 else 0) + scores_improving
+    # This padding logic is a bit complex, simpler to just ensure enough scores
+    # Let's use a simpler approach for test data:
+    scores_clear_improvement = [0.1, 0.2, 0.3, 0.4, 0.5] # window=3. Recent [0.3,0.4,0.5]. Impr: 0.1,0.1. Mean = 0.1
+    improvement1 = detector._calculate_recent_improvement(scores_clear_improvement)
+    assert improvement1 == pytest.approx(0.1)
+
+    # Test case 2: Diminishing returns
+    scores_diminishing = [0.1, 0.5, 0.50001, 0.50002, 0.50003] # Recent [0.50001, 0.50002, 0.50003]. Impr: 0.00001, 0.00001. Mean = 0.00001
+    improvement2 = detector._calculate_recent_improvement(scores_diminishing)
+    assert improvement2 == pytest.approx(0.00001)
+
+    # Test case 3: Scores decreasing (improvement should be 0 for negative improvements)
+    scores_decreasing = [0.5, 0.4, 0.3, 0.2, 0.1] # Recent [0.3,0.2,0.1]. Impr: -0.1, -0.1. Max(0, impr) -> 0,0. Mean = 0
+    improvement3 = detector._calculate_recent_improvement(scores_decreasing)
+    assert improvement3 == pytest.approx(0.0)
+
+    # Test case 4: Not enough scores for a full window
+    scores_short = [0.1, 0.2]
+    improvement4 = detector._calculate_recent_improvement(scores_short)
+    assert improvement4 == float('inf') # As per implementation for not enough data
+
+def test_statistical_convergence_scipy_fallback(detector, detector_defaults):
+    scores = [0.8] * detector_defaults["convergence_window"] # Plateaued scores
+
+    with patch('perquire.convergence.algorithms.stats') as mock_scipy_stats:
+        # Simulate scipy.stats being None or raising ImportError
+        # Method 1: Set stats to None
+        # algorithms.stats = None # This would modify the module globally, not ideal for a test
+        # Method 2: Patch import to fail
+        with patch('importlib.import_module', side_effect=ImportError):
+             # Need to re-trigger the import within the function or make scipy.stats access fail
+             # The code is `from scipy import stats`. We need this to fail.
+             # The current patch of 'perquire.convergence.algorithms.stats' might be too late
+             # if 'from scipy import stats' is at module level.
+             # Let's assume 'from scipy import stats' is inside _statistical_convergence_test or can be mocked out.
+             # For simplicity, let's directly cause an import error when 'stats.norm.cdf' is accessed.
+            mock_scipy_stats.norm.cdf.side_effect = ImportError("Scipy not available")
+
+            # If the above doesn't work due to import scope, an alternative is to patch np.var in the fallback
+            # to verify the fallback path is taken, though it doesn't test the ImportCatch directly.
+            # For now, let's assume the above patch can simulate the ImportError for the 'from scipy import stats'
+            # or that the 'stats' object itself becomes None or unusable.
+            # A more robust way is to patch 'scipy.stats' where it's used.
+            # The code uses `from scipy import stats` then `stats.norm.cdf`.
+            # So, if `stats` is None or `stats.norm.cdf` raises error, it should fallback.
+
+            # To test the fallback which uses variance:
+            # Ensure scores would cause convergence by fallback's variance check
+            # Fallback: recent_var = np.var(scores[-self.convergence_window:])
+            #           converged = recent_var < self.plateau_threshold
+            # Scores [0.8, 0.8, 0.8] -> variance is 0, which is < plateau_threshold (0.0005)
+
+            # We need to ensure the try-except for ImportError is hit.
+            # This happens if `from scipy import stats` fails or if `stats.norm.cdf` fails.
+            # The current `_statistical_convergence_test` has `from scipy import stats` inside.
+            # So, we can patch `scipy.stats` in the algorithms module context.
+
+            with patch('perquire.convergence.algorithms.stats', None): # Simulate scipy.stats not being available
+                result_dict = detector._statistical_convergence_test(scores)
+
+            assert result_dict["converged"] # Should converge by variance fallback
+            assert result_dict["metrics"]["method"] == "fallback_variance"
+            assert result_dict["metrics"]["variance"] == pytest.approx(0.0)
+            assert result_dict["p_value"] == pytest.approx(0.0) # p_value is set to recent_var in fallback
+
+            # Test with scores that would NOT converge by fallback variance
+            scores_not_converging_fallback = [0.1, 0.5, 0.9] # var will be > plateau_threshold
+            with patch('perquire.convergence.algorithms.stats', None):
+                result_dict_not_conv = detector._statistical_convergence_test(scores_not_converging_fallback)
+            assert not result_dict_not_conv["converged"]
+            assert result_dict_not_conv["metrics"]["method"] == "fallback_variance"
+            assert result_dict_not_conv["metrics"]["variance"] > detector_defaults["plateau_threshold"]
