@@ -1,0 +1,90 @@
+{
+  "summary": {
+    "total_scenarios": 3,
+    "passed": 2,
+    "failed": 1,
+    "pass_rate": 0.6666666666666666,
+    "average_improvement": 0.384602322200499
+  },
+  "results": [
+    {
+      "scenario": "High Similarity Start",
+      "passed": true,
+      "expected_threshold": 0.85,
+      "duration": 2.0742416381835938e-05,
+      "initial_similarity": 0.9979654098963516,
+      "final_similarity": 0.9986014527394567,
+      "improvement": 0.0006360428431050336,
+      "iterations": 1,
+      "converged": true,
+      "history": [
+        {
+          "iteration": 1,
+          "similarity": 0.9986014527394567,
+          "improvement": 0.0006360428431050336
+        }
+      ]
+    },
+    {
+      "scenario": "Moderate Similarity Start",
+      "passed": true,
+      "expected_threshold": 0.8,
+      "duration": 1.0251998901367188e-05,
+      "initial_similarity": 0.9243383228029042,
+      "final_similarity": 0.9518734349847684,
+      "improvement": 0.02753511218186422,
+      "iterations": 2,
+      "converged": true,
+      "history": [
+        {
+          "iteration": 1,
+          "similarity": 0.9392459456216309,
+          "improvement": 0.014907622818726707
+        },
+        {
+          "iteration": 2,
+          "similarity": 0.9518734349847684,
+          "improvement": 0.012627489363137512
+        }
+      ]
+    },
+    {
+      "scenario": "Low Similarity Start",
+      "passed": false,
+      "expected_threshold": 0.75,
+      "duration": 1.4066696166992188e-05,
+      "initial_similarity": -0.5278648838823761,
+      "final_similarity": 0.5977709276941515,
+      "improvement": 1.1256358115765277,
+      "iterations": 5,
+      "converged": false,
+      "history": [
+        {
+          "iteration": 1,
+          "similarity": -0.3943091278924336,
+          "improvement": 0.13355575598994246
+        },
+        {
+          "iteration": 2,
+          "similarity": -0.19864053732756712,
+          "improvement": 0.1956685905648665
+        },
+        {
+          "iteration": 3,
+          "similarity": 0.06353795154620923,
+          "improvement": 0.26217848887377637
+        },
+        {
+          "iteration": 4,
+          "similarity": 0.3527757962999991,
+          "improvement": 0.2892378447537899
+        },
+        {
+          "iteration": 5,
+          "similarity": 0.5977709276941515,
+          "improvement": 0.2449951313941524
+        }
+      ]
+    }
+  ]
+}

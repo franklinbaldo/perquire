@@ -55,7 +55,7 @@ Perquire requires Python 3.8 or higher and works with various LLM providers and 
 pip install perquire
 
 # Or install from source
-git clone https://github.com/yourusername/perquire.git
+git clone https://github.com/franklinbaldo/perquire.git
 cd perquire
 pip install -e .
 ```

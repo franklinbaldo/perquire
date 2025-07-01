@@ -9,7 +9,13 @@
       "Bash(git restore:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(uv sync:*)"
+      "Bash(uv sync:*)",
+      "Bash(grep:*)",
+      "Bash(find:*)",
+      "Bash(python:*)",
+      "Bash(source:*)",
+      "Bash(uv run:*)",
+      "Bash(uv add:*)"
     ],
     "deny": []
   }

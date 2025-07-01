@@ -2,14 +2,7 @@
 Command Line Interface for Perquire.
 """
 
-from .main import cli
-from .commands import investigate, batch, configure, status, export
+# Import lean CLI by default
+from .lean_main import cli
 
-__all__ = [
-    "cli",
-    "investigate",
-    "batch", 
-    "configure",
-    "status",
-    "export",
-]
+__all__ = ["cli"]

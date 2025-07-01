@@ -14,9 +14,7 @@ import os
 from pathlib import Path
 from typing import Optional, List
 
-from .. import create_investigator, create_ensemble_investigator, investigate_embedding
-from ..core import InvestigationResult
-from ..exceptions import InvestigationError
+from ..providers import list_available_providers, ProviderNotInstalledError
 
 console = Console()
 
@@ -33,92 +31,18 @@ def cli():
     pass
 
 
-@cli.command()
-@click.argument('embedding_file', type=click.Path(exists=True))
-@click.option('--provider', '-p', default='gemini', 
-              type=click.Choice(['gemini', 'openai', 'anthropic', 'ollama']),
-              help='LLM provider to use')
-@click.option('--strategy', '-s', default='default',
-              type=click.Choice(['default', 'artistic', 'scientific', 'emotional']),
-              help='Investigation strategy to use')
-@click.option('--database', '-d', default='perquire.db',
-              help='Database file path')
-@click.option('--save/--no-save', default=True,
-              help='Save results to database')
-@click.option('--verbose', '-v', is_flag=True,
-              help='Verbose output')
-@click.option('--format', '-f', default='json',
-              type=click.Choice(['json', 'npy', 'txt']),
-              help='Input file format')
-def investigate(embedding_file, provider, strategy, database, save, verbose, format):
-    """
-    Investigate a single embedding from file.
-    
-    EMBEDDING_FILE: Path to file containing the embedding
-    """
-    try:
-        # Load embedding
-        embedding = load_embedding_from_file(embedding_file, format)
-        
-        if verbose:
-            console.print(f"🔍 [bold]Investigating embedding from:[/bold] {embedding_file}")
-            console.print(f"📊 [bold]Embedding shape:[/bold] {embedding.shape}")
-            console.print(f"🤖 [bold]Provider:[/bold] {provider}")
-            console.print(f"🧠 [bold]Strategy:[/bold] {strategy}")
-        
-        # Create investigator
-        investigator = create_investigator(
-            llm_provider=provider,
-            embedding_provider=provider if provider == 'gemini' else 'gemini',
-            strategy=strategy,
-            database_path=database
-        )
-        
-        # Run investigation with progress
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=console
-        ) as progress:
-            task = progress.add_task("Investigating embedding...", total=None)
-            
-            result = investigator.investigate(
-                target_embedding=embedding,
-                save_to_database=save,
-                verbose=verbose
-            )
-        
-        # Display results
-        display_investigation_result(result)
-        
-        if save:
-            console.print(f"💾 [green]Results saved to database:[/green] {database}")
-        
-    except Exception as e:
-        console.print(f"❌ [red]Investigation failed:[/red] {str(e)}")
-        raise click.Abort()
-
-
-@cli.command()
-@click.argument('embeddings_dir', type=click.Path(exists=True, file_okay=False))
-@click.option('--provider', '-p', default='gemini',
-              type=click.Choice(['gemini', 'openai', 'anthropic', 'ollama']),
-              help='LLM provider to use')
-@click.option('--strategy', '-s', default='default',
-              type=click.Choice(['default', 'artistic', 'scientific', 'emotional']),
-              help='Investigation strategy to use')
-@click.option('--database', '-d', default='perquire.db',
-              help='Database file path')
-@click.option('--ensemble', is_flag=True,
-              help='Use ensemble investigation')
-@click.option('--parallel', is_flag=True, default=True,
-              help='Process in parallel')
-@click.option('--limit', '-l', type=int,
-              help='Limit number of files to process')
-@click.option('--format', '-f', default='json',
-              type=click.Choice(['json', 'npy', 'txt']),
-              help='Input file format')
-def batch(embeddings_dir, provider, strategy, database, ensemble, parallel, limit, format):
+# === INVESTIGATION COMMANDS DISABLED FOR LEAN INSTALLATION ===
+# The following commands require the full investigation engine
+# Install with: pip install perquire[api-gemini] to enable these commands:
+#
+# - perquire investigate <file>     # Single embedding investigation  
+# - perquire batch <directory>      # Batch investigation
+# - perquire status                 # Investigation history
+# - perquire export                 # Export results
+#
+# Currently available commands:
+# - perquire providers              # List available providers
+# - perquire configure              # Configure settings
     """
     Investigate multiple embeddings from directory.
     
@@ -244,6 +168,56 @@ def configure(provider, api_key, database, show):
         json.dump(config, f, indent=2)
     
     console.print(f"💾 [green]Configuration saved to:[/green] {config_file}")
+
+
+@cli.command()
+def providers():
+    """
+    List available LLM and embedding providers and their installation status.
+    """
+    try:
+        providers = list_available_providers()
+        
+        console.print("\n[bold]📋 Available Providers[/bold]\n")
+        
+        # Embedding providers
+        console.print("[bold blue]🔍 Embedding Providers[/bold blue]")
+        embed_table = Table(show_header=True, header_style="bold magenta")
+        embed_table.add_column("Provider", style="cyan")
+        embed_table.add_column("Status", justify="center")
+        embed_table.add_column("Install Command", style="dim")
+        
+        for name, info in providers["embedding"].items():
+            status = "✅ Installed" if info["installed"] else "❌ Not installed"
+            install_cmd = f"pip install perquire[{info['extra']}]" if not info["installed"] else "-"
+            embed_table.add_row(name, status, install_cmd)
+        
+        console.print(embed_table)
+        console.print()
+        
+        # LLM providers  
+        console.print("[bold blue]🤖 LLM Providers[/bold blue]")
+        llm_table = Table(show_header=True, header_style="bold magenta")
+        llm_table.add_column("Provider", style="cyan")
+        llm_table.add_column("Status", justify="center")
+        llm_table.add_column("Install Command", style="dim")
+        
+        for name, info in providers["llm"].items():
+            status = "✅ Installed" if info["installed"] else "❌ Not installed"
+            install_cmd = f"pip install perquire[{info['extra']}]" if not info["installed"] else "-"
+            llm_table.add_row(name, status, install_cmd)
+        
+        console.print(llm_table)
+        
+        # Installation examples
+        console.print("\n[bold yellow]💡 Common Installation Examples:[/bold yellow]")
+        console.print("   pip install perquire[api-openai,dev]     # OpenAI + dev tools")
+        console.print("   pip install perquire[api-gemini,web]     # Gemini + web interface")
+        console.print("   pip install perquire[local-embeddings]   # Local inference (heavy!)")
+        console.print("   pip install perquire[api-openai,api-anthropic,web,dev]  # Full setup")
+        
+    except Exception as e:
+        console.print(f"[red]Error listing providers: {e}[/red]")
 
 
 @cli.command()
@@ -394,89 +368,13 @@ def list_embedding_files(directory: Path, format: str, limit: Optional[int] = No
     return files
 
 
-def display_investigation_result(result: InvestigationResult):
-    """Display investigation result in a nice format."""
-    console.print()
-    console.print("[bold]🔍 Investigation Results[/bold]")
-    console.print()
-    
-    # Main info
-    info_table = Table()
-    info_table.add_column("Field")
-    info_table.add_column("Value")
-    
-    info_table.add_row("Investigation ID", result.investigation_id)
-    info_table.add_row("Description", result.description)
-    info_table.add_row("Final Similarity", f"{result.final_similarity:.4f}")
-    info_table.add_row("Iterations", str(result.iterations))
-    info_table.add_row("Strategy", result.strategy_name)
-    info_table.add_row("Duration", str(result.end_time - result.start_time if result.end_time else "N/A"))
-    
-    console.print(info_table)
-    
-    # Questions (if any)
-    if hasattr(result, 'questions') and result.questions:
-        console.print()
-        questions_table = Table(title="Investigation Questions")
-        questions_table.add_column("Q#")
-        questions_table.add_column("Question")
-        questions_table.add_column("Answer")
-        questions_table.add_column("Similarity")
-        
-        for i, q in enumerate(result.questions[-5:], 1):  # Show last 5 questions
-            questions_table.add_row(
-                str(i),
-                q.question[:40] + "..." if len(q.question) > 40 else q.question,
-                q.answer[:40] + "..." if len(q.answer) > 40 else q.answer,
-                f"{q.similarity:.3f}"
-            )
-        
-        console.print(questions_table)
+# === HEAVY FUNCTIONS DISABLED FOR LEAN INSTALLATION ===
+# These functions require the full investigation engine and are disabled
+# Install with: pip install perquire[api-gemini] to enable full functionality
 
-
-def display_batch_results(results: List[tuple]):
-    """Display batch investigation results summary."""
-    console.print()
-    console.print("[bold]📊 Batch Investigation Summary[/bold]")
-    console.print()
-    
-    if not results:
-        console.print("❌ [red]No successful investigations[/red]")
-        return
-    
-    # Summary stats
-    similarities = [result.final_similarity for _, result in results]
-    iterations = [result.iterations for _, result in results]
-    
-    summary_table = Table(title="Summary Statistics")
-    summary_table.add_column("Metric")
-    summary_table.add_column("Value")
-    
-    summary_table.add_row("Total Processed", str(len(results)))
-    summary_table.add_row("Average Similarity", f"{np.mean(similarities):.3f}")
-    summary_table.add_row("Max Similarity", f"{max(similarities):.3f}")
-    summary_table.add_row("Min Similarity", f"{min(similarities):.3f}")
-    summary_table.add_row("Average Iterations", f"{np.mean(iterations):.1f}")
-    
-    console.print(summary_table)
-    
-    # Top results
-    sorted_results = sorted(results, key=lambda x: x[1].final_similarity, reverse=True)
-    
-    console.print()
-    top_table = Table(title="Top 5 Results")
-    top_table.add_column("File")
-    top_table.add_column("Description")
-    top_table.add_column("Similarity")
-    
-    for file_path, result in sorted_results[:5]:
-        top_table.add_row(
-            file_path.name,
-            result.description[:50] + "..." if len(result.description) > 50 else result.description,
-            f"{result.final_similarity:.3f}"
-        )
-    
-    console.print(top_table)
+# def display_investigation_result(result):
+# def display_batch_results(results: List[tuple]):
+# ... (functions commented out - require heavy dependencies)
 
 
 if __name__ == '__main__':
