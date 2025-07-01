@@ -85,7 +85,7 @@ class GeminiEmbeddingProvider(BaseEmbeddingProvider):
         except Exception as e:
             raise EmbeddingError(f"Failed to initialize Gemini embedding model: {str(e)}")
     
-    def embed_text(self, text: str, **kwargs) -> EmbeddingResult:
+    def _execute_embed_text(self, text: str, **kwargs) -> EmbeddingResult:
         """
         Generate embedding for a single text using Gemini.
         
@@ -129,7 +129,7 @@ class GeminiEmbeddingProvider(BaseEmbeddingProvider):
                 raise RateLimitError(f"Gemini embedding rate limit exceeded: {str(e)}")
             raise EmbeddingError(f"Gemini embedding generation failed: {str(e)}")
     
-    def embed_batch(self, texts: List[str], **kwargs) -> List[EmbeddingResult]:
+    def _execute_embed_batch(self, texts: List[str], **kwargs) -> List[EmbeddingResult]:
         """
         Generate embeddings for a batch of texts using Gemini.
         

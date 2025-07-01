@@ -712,3 +712,122 @@ class DuckDBProvider(BaseDatabaseProvider):
             
         except Exception as e:
             raise DatabaseError(f"Failed to execute query: {str(e)}")
+
+    # --- Caching Specific Methods ---
+
+    def _generate_hash(self, data: Union[str, Dict, List]) -> str:
+        """Generate SHA256 hash for given data."""
+        if isinstance(data, str):
+            return hashlib.sha256(data.encode('utf-8')).hexdigest()
+        else: # For dicts, lists (e.g. LLM inputs)
+            return hashlib.sha256(json.dumps(data, sort_keys=True).encode('utf-8')).hexdigest()
+
+    # Embedding Cache (uses existing 'embeddings' table)
+    def get_cached_embedding(self, text_content: str) -> Optional[np.ndarray]:
+        """Retrieve a cached embedding by its text content."""
+        text_hash = self._generate_hash(text_content)
+        try:
+            result = self._connection.execute(
+                "SELECT embedding_vector FROM embeddings WHERE text_hash = ?",
+                [text_hash]
+            ).fetchone()
+            if result and result[0] is not None:
+                # DuckDB stores FLOAT[768] as list of floats
+                return np.array(result[0], dtype=np.float32)
+            return None
+        except Exception as e:
+            logger.error(f"Error getting cached embedding for hash {text_hash}: {e}")
+            return None # On error, treat as cache miss
+
+    def set_cached_embedding(self, text_content: str, embedding: np.ndarray,
+                             model_name: str, provider_name: str,
+                             dimensions: int, embedding_norm: float,
+                             metadata: Optional[Dict[str, Any]] = None) -> str:
+        """
+        Saves an embedding to the cache (existing 'embeddings' table).
+        This is essentially a wrapper around save_embedding, ensuring parameters match.
+        """
+        full_metadata = metadata or {}
+        full_metadata.update({"model": model_name, "provider": provider_name})
+
+        # save_embedding already handles hashing and deduplication
+        return self.save_embedding(text=text_content, embedding=embedding, metadata=full_metadata)
+
+    # Similarity Score Cache
+    def get_cached_similarity(self, question_text: str, target_embedding_identifier: str) -> Optional[float]:
+        """Retrieve a cached similarity score."""
+        query_hash = self._generate_hash(question_text)
+        # target_embedding_identifier could be a hash of the target embedding array or a unique ID
+        target_hash = self._generate_hash(target_embedding_identifier)
+        try:
+            result = self._connection.execute(
+                "SELECT similarity_score FROM similarity_cache WHERE query_hash = ? AND target_embedding_hash = ?",
+                [query_hash, target_hash]
+            ).fetchone()
+            return float(result[0]) if result else None
+        except Exception as e:
+            logger.error(f"Error getting cached similarity: {e}")
+            return None
+
+    def set_cached_similarity(self, question_text: str, target_embedding_identifier: str, score: float):
+        """Cache a similarity score."""
+        query_hash = self._generate_hash(question_text)
+        target_hash = self._generate_hash(target_embedding_identifier)
+        try:
+            self._connection.execute(
+                "INSERT OR REPLACE INTO similarity_cache (query_hash, target_embedding_hash, similarity_score, created_at) VALUES (?, ?, ?, ?)",
+                [query_hash, target_hash, score, datetime.now().isoformat()]
+            )
+        except Exception as e:
+            logger.error(f"Error setting cached similarity: {e}")
+
+    # LLM Question Generation Cache
+    def get_cached_llm_question_gen(self, input_data: Dict[str, Any]) -> Optional[List[str]]:
+        """Retrieve cached generated questions for LLM input."""
+        input_hash = self._generate_hash(input_data)
+        try:
+            result = self._connection.execute(
+                "SELECT generated_questions_json FROM llm_question_gen_cache WHERE input_hash = ?",
+                [input_hash]
+            ).fetchone()
+            return json.loads(result[0]) if result else None
+        except Exception as e:
+            logger.error(f"Error getting cached LLM question gen: {e}")
+            return None
+
+    def set_cached_llm_question_gen(self, input_data: Dict[str, Any], questions: List[str]):
+        """Cache generated questions from LLM."""
+        input_hash = self._generate_hash(input_data)
+        questions_json = json.dumps(questions)
+        try:
+            self._connection.execute(
+                "INSERT OR REPLACE INTO llm_question_gen_cache (input_hash, generated_questions_json, created_at) VALUES (?, ?, ?)",
+                [input_hash, questions_json, datetime.now().isoformat()]
+            )
+        except Exception as e:
+            logger.error(f"Error setting cached LLM question gen: {e}")
+
+    # LLM Synthesis Cache
+    def get_cached_llm_synthesis(self, input_data: Dict[str, Any]) -> Optional[str]:
+        """Retrieve cached synthesized description from LLM."""
+        input_hash = self._generate_hash(input_data)
+        try:
+            result = self._connection.execute(
+                "SELECT synthesized_description FROM llm_synthesis_cache WHERE input_hash = ?",
+                [input_hash]
+            ).fetchone()
+            return result[0] if result else None
+        except Exception as e:
+            logger.error(f"Error getting cached LLM synthesis: {e}")
+            return None
+
+    def set_cached_llm_synthesis(self, input_data: Dict[str, Any], description: str):
+        """Cache synthesized description from LLM."""
+        input_hash = self._generate_hash(input_data)
+        try:
+            self._connection.execute(
+                "INSERT OR REPLACE INTO llm_synthesis_cache (input_hash, synthesized_description, created_at) VALUES (?, ?, ?)",
+                [input_hash, description, datetime.now().isoformat()]
+            )
+        except Exception as e:
+            logger.error(f"Error setting cached LLM synthesis: {e}")

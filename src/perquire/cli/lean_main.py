@@ -28,6 +28,24 @@ def cli():
     """
     pass
 
+# Import commands from main.py (or a commands.py if that's the final structure)
+# For now, assuming investigate is in main.py and is a click.Command instance
+try:
+    from .main import investigate as investigate_command
+    from .main import status as status_command
+    from .main import batch as batch_command # Added batch command
+    from .main import export as export_command # Assuming export should also be here
+
+    cli.add_command(investigate_command, "investigate")
+    cli.add_command(status_command, "status")
+    cli.add_command(batch_command, "batch") # Added batch command
+    cli.add_command(export_command, "export") # Added export command
+except ImportError as e:
+    # This allows lean_main to function even if main.py has issues or missing commands,
+    # though the commands themselves wouldn't be available.
+    # A better approach might be to ensure main.py is robust.
+    pass # Or print a warning: print(f"Warning: Could not import all commands from main.py: {e}")
+
 
 @cli.command()
 def providers():

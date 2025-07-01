@@ -253,9 +253,66 @@ QUESTION_INDEXES = [
 
 ALL_SCHEMAS = [
     INVESTIGATION_TABLE_SCHEMA,
-    EMBEDDING_TABLE_SCHEMA,
-    QUESTION_TABLE_SCHEMA
+    EMBEDDING_TABLE_SCHEMA, # This serves as persistent embedding cache
+    QUESTION_TABLE_SCHEMA,
+    # New Cache Table Schemas added below
 ]
 
-# Include VSS index in all indexes
-ALL_INDEXES = INVESTIGATION_INDEXES + EMBEDDING_INDEXES + QUESTION_INDEXES + [VSS_INDEX_SCHEMA]
+# New Cache Table Schemas
+SIMILARITY_CACHE_TABLE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS similarity_cache (
+    query_hash VARCHAR NOT NULL,
+    target_embedding_hash VARCHAR NOT NULL,
+    similarity_score DOUBLE NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (query_hash, target_embedding_hash)
+);
+"""
+
+LLM_QUESTION_GEN_CACHE_TABLE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS llm_question_gen_cache (
+    input_hash VARCHAR PRIMARY KEY,
+    generated_questions_json TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
+LLM_SYNTHESIS_CACHE_TABLE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS llm_synthesis_cache (
+    input_hash VARCHAR PRIMARY KEY,
+    synthesized_description TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
+# Add new schemas to ALL_SCHEMAS
+ALL_SCHEMAS.extend([
+    SIMILARITY_CACHE_TABLE_SCHEMA,
+    LLM_QUESTION_GEN_CACHE_TABLE_SCHEMA,
+    LLM_SYNTHESIS_CACHE_TABLE_SCHEMA
+])
+
+
+# Indexes for new cache tables
+SIMILARITY_CACHE_INDEXES = [
+    "CREATE INDEX IF NOT EXISTS idx_similarity_cache_query_hash ON similarity_cache(query_hash);",
+    "CREATE INDEX IF NOT EXISTS idx_similarity_cache_target_hash ON similarity_cache(target_embedding_hash);"
+]
+LLM_QUESTION_GEN_CACHE_INDEXES = [ # Renamed for consistency
+    "CREATE INDEX IF NOT EXISTS idx_llm_question_gen_cache_input_hash ON llm_question_gen_cache(input_hash);"
+]
+LLM_SYNTHESIS_CACHE_INDEXES = [ # Renamed for consistency
+    "CREATE INDEX IF NOT EXISTS idx_llm_synthesis_cache_input_hash ON llm_synthesis_cache(input_hash);"
+]
+
+
+# Include VSS index and new cache table indexes in ALL_INDEXES
+ALL_INDEXES = (
+    INVESTIGATION_INDEXES +
+    EMBEDDING_INDEXES +
+    QUESTION_INDEXES +
+    [VSS_INDEX_SCHEMA] +
+    SIMILARITY_CACHE_INDEXES +
+    LLM_QUESTION_GEN_CACHE_INDEXES +
+    LLM_SYNTHESIS_CACHE_INDEXES
+)
