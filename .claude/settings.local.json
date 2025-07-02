@@ -17,7 +17,14 @@
       "Bash(uv run:*)",
       "Bash(uv add:*)",
       "Bash(mkdir:*)",
-      "Bash(returning a description today, it goes to backlog.\"\n\n🤖 Generated with [Claude Code](https://claude.ai/code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")"
+      "Bash(returning a description today, it goes to backlog.\"\n\n🤖 Generated with [Claude Code](https://claude.ai/code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(UV_HTTP_TIMEOUT=300 uv sync)",
+      "Bash(uv remove:*)",
+      "Bash(chmod:*)",
+      "Bash(./run_live_e2e.sh:*)",
+      "Bash(bash:*)",
+      "Bash(dos2unix:*)",
+      "Bash(sed:*)"
     ],
     "deny": []
   }

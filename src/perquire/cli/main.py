@@ -43,72 +43,6 @@ def cli():
 # Currently available commands:
 # - perquire providers              # List available providers
 # - perquire configure              # Configure settings
-    """
-    Investigate multiple embeddings from directory.
-    
-    EMBEDDINGS_DIR: Directory containing embedding files
-    """
-    try:
-        # Find embedding files
-        embedding_files = list_embedding_files(embeddings_dir, format, limit)
-        
-        if not embedding_files:
-            console.print(f"❌ [red]No embedding files found in:[/red] {embeddings_dir}")
-            return
-        
-        console.print(f"📁 [bold]Found {len(embedding_files)} embedding files[/bold]")
-        
-        if not Confirm.ask(f"Proceed with batch investigation?"):
-            console.print("⏹️ [yellow]Operation cancelled[/yellow]")
-            return
-        
-        results = []
-        
-        with Progress(console=console) as progress:
-            task = progress.add_task("Processing embeddings...", total=len(embedding_files))
-            
-            for i, file_path in enumerate(embedding_files):
-                try:
-                    # Load embedding
-                    embedding = load_embedding_from_file(file_path, format)
-                    
-                    # Investigate
-                    if ensemble:
-                        investigator = create_ensemble_investigator(
-                            strategies=['default', 'artistic', 'scientific'],
-                            database_path=database
-                        )
-                        result = investigator.investigate(
-                            target_embedding=embedding,
-                            parallel=parallel,
-                            save_ensemble_result=True,
-                            verbose=False
-                        )
-                    else:
-                        investigator = create_investigator(
-                            llm_provider=provider,
-                            strategy=strategy,
-                            database_path=database
-                        )
-                        result = investigator.investigate(
-                            target_embedding=embedding,
-                            save_to_database=True,
-                            verbose=False
-                        )
-                    
-                    results.append((file_path, result))
-                    progress.update(task, advance=1, description=f"Processed {file_path.name}")
-                    
-                except Exception as e:
-                    console.print(f"❌ [red]Failed to process {file_path}:[/red] {str(e)}")
-                    progress.update(task, advance=1)
-        
-        # Display summary
-        display_batch_results(results)
-        
-    except Exception as e:
-        console.print(f"❌ [red]Batch investigation failed:[/red] {str(e)}")
-        raise click.Abort()
 
 
 @cli.command()
@@ -334,9 +268,11 @@ def export(database, output, format, limit):
 
 # --- investigate command and its helpers ---
 from ..core.investigator import PerquireInvestigator
-# Assuming ProviderNotInstalledError and PerquireException are in perquire.exceptions
-# from ..exceptions import ProviderNotInstalledError, PerquireException # Already imported at top
+from ..exceptions import ConfigurationError, InvestigationError
 from typing import Any # For InvestigationResult type hint
+
+# Create alias for backward compatibility
+PerquireException = InvestigationError
 
 # --- Configuration Helper ---
 def get_global_config() -> dict:
@@ -406,7 +342,7 @@ def create_investigator_from_cli_options(
         if verbose:
             console.print(f"[dim]Investigator created with LLM: [cyan]{final_llm_provider_name}[/cyan], Embeddings: [cyan]{final_embedding_provider_name}[/cyan][/dim]")
         return investigator
-    except ProviderNotInstalledError as e:
+    except ConfigurationError as e:
         console.print(f"[red]Error: {e}[/red]")
         console.print(f"👉 Please install the required provider and try again.")
         raise click.Abort()
@@ -432,7 +368,7 @@ def display_investigation_result(result: Any, verbose: bool = False):
     console.print(f"   [bold]Duration:[/bold]    {result.total_duration_seconds:.2f}s")
     console.print(f"   [bold]Strategy:[/bold]    {result.strategy_name}")
 
-    if verbose and result.questions_history:
+    if verbose and hasattr(result, 'question_history') and result.question_history:
         console.print("\n[bold]Question History:[/bold]")
         history_table = Table(show_header=True, header_style="bold magenta", title=None) # Removed title for cleaner look
         history_table.add_column("Iter.", style="dim")
@@ -440,7 +376,7 @@ def display_investigation_result(result: Any, verbose: bool = False):
         history_table.add_column("Question", overflow="fold") # Allow question to wrap
         history_table.add_column("Similarity", style="magenta")
 
-        for i, qr in enumerate(result.questions_history):
+        for i, qr in enumerate(result.question_history):
             history_table.add_row(str(i + 1), qr.phase, qr.question, f"{qr.similarity:.4f}")
         console.print(history_table)
     elif verbose: # Handle case where verbose is true but no history (e.g. error before history populated)

@@ -14,7 +14,7 @@ from .ollama_provider import OllamaProvider
 # These are minimal configs; users should provide API keys etc.
 DEFAULT_PROVIDER_CONFIGS = {
     "openai": {"model": "gpt-3.5-turbo"},
-    "gemini": {"model": "gemini-pro"},
+    "gemini": {"model": "gemini-2.5-flash-lite-preview-06-17"},
     "anthropic": {"model": "claude-3-sonnet-20240229"},
     "ollama": {"model": "llama2", "base_url": "http://localhost:11434"},
 }
