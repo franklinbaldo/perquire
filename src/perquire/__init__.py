@@ -12,7 +12,19 @@ __email__ = "franklinbaldo@gmail.com"
 
 # Lightweight core - only expose provider factory functions
 from .providers import list_available_providers
+from .akinator import (
+    WikipediaDatasetBuilder,
+    BatchEmbeddingGenerator,
+    MassiveQuestionGenerator,
+    OptimizedBootstrapInvestigator,
+    DimensionalAnalyzer,
+)
 
 __all__ = [
     "list_available_providers",
+    "WikipediaDatasetBuilder",
+    "BatchEmbeddingGenerator",
+    "MassiveQuestionGenerator",
+    "OptimizedBootstrapInvestigator",
+    "DimensionalAnalyzer",
 ]

@@ -5,6 +5,7 @@ This module automatically registers available embedding providers with the centr
 """
 
 from .base import BaseEmbeddingProvider, EmbeddingResult, embedding_registry, EmbeddingError
+from ..exceptions import ConfigurationError
 from .gemini_embeddings import GeminiEmbeddingProvider
 from .openai_embeddings import OpenAIEmbeddingProvider # Added new provider
 from .utils import cosine_similarity, normalize_embedding
@@ -22,15 +23,15 @@ try:
         OpenAIEmbeddingProvider(config=DEFAULT_EMBEDDING_PROVIDER_CONFIGS["openai"]),
         set_as_default=True # Example: Set OpenAI as default
     )
-except EmbeddingError as e:
-    print(f"Note: OpenAI Embedding provider not fully configured: {e}") # Or use logger
+except (EmbeddingError, ConfigurationError) as e:
+    print(f"Note: OpenAI Embedding provider not fully configured: {e}")
 
 try:
     embedding_registry.register_provider(
         "gemini",
         GeminiEmbeddingProvider(config=DEFAULT_EMBEDDING_PROVIDER_CONFIGS["gemini"])
     )
-except EmbeddingError as e:
+except (EmbeddingError, ConfigurationError) as e:
     print(f"Note: Gemini Embedding provider not fully configured: {e}")
 
 

@@ -5,6 +5,7 @@ This module automatically registers available LLM providers with the central reg
 """
 
 from .base import BaseLLMProvider, provider_registry, LLMProviderError
+from ..exceptions import ConfigurationError
 from .gemini_provider import GeminiProvider
 from .openai_provider import OpenAIProvider
 from .anthropic_provider import AnthropicProvider
@@ -28,15 +29,15 @@ try:
         OpenAIProvider(config=DEFAULT_PROVIDER_CONFIGS["openai"]),
         set_as_default=True # Example: set OpenAI as default if available
     )
-except LLMProviderError as e:
-    print(f"Note: OpenAI LLM provider not fully configured: {e}") # Or use logger
+except (LLMProviderError, ConfigurationError) as e:
+    print(f"Note: OpenAI LLM provider not fully configured: {e}")
 
 try:
     provider_registry.register_provider(
         "gemini",
         GeminiProvider(config=DEFAULT_PROVIDER_CONFIGS["gemini"])
     )
-except LLMProviderError as e:
+except (LLMProviderError, ConfigurationError) as e:
     print(f"Note: Gemini LLM provider not fully configured: {e}")
 
 try:
@@ -44,7 +45,7 @@ try:
         "anthropic",
         AnthropicProvider(config=DEFAULT_PROVIDER_CONFIGS["anthropic"])
     )
-except LLMProviderError as e:
+except (LLMProviderError, ConfigurationError) as e:
     print(f"Note: Anthropic LLM provider not fully configured: {e}")
 
 try:
@@ -52,7 +53,7 @@ try:
         "ollama",
         OllamaProvider(config=DEFAULT_PROVIDER_CONFIGS["ollama"])
     )
-except LLMProviderError as e:
+except (LLMProviderError, ConfigurationError) as e:
     print(f"Note: Ollama LLM provider not fully configured: {e}")
 
 

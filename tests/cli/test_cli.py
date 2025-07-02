@@ -185,4 +185,3 @@ def test_cli_batch_command(runner, mock_investigator_instance, tmp_path):
     assert "dummy_emb_0.npy" in result.output # File names in summary
     assert "dummy_emb_1.npy" in result.output
     assert "dummy_emb_2.npy" in result.output
-```
