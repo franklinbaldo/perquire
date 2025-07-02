@@ -207,3 +207,14 @@ marimo/_lsp/
 __marimo__/
 uv.lock
 .claude/*
+
+# Perquire specific
+examples/temp_*
+benchmarks/results_*
+tools/output_*
+docs/reports/temp_*
+
+# Knowledge base files (too large for git)
+*.json.gz
+*knowledge_base.json
+*embeddings_cache*

@@ -24,7 +24,8 @@
       "Bash(./run_live_e2e.sh:*)",
       "Bash(bash:*)",
       "Bash(dos2unix:*)",
-      "Bash(sed:*)"
+      "Bash(sed:*)",
+      "Bash(git config:*)"
     ],
     "deny": []
   }

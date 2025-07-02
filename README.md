@@ -403,6 +403,28 @@ Join the Perquire community to share discoveries, get help, and contribute to th
 
 For commercial support and consulting, contact us at support@perquire.dev.
 
+## Repository Structure
+
+```
+perquire/
+├── src/perquire/           # Core library code
+├── tests/                  # Test suite
+├── examples/               # Example scripts and live E2E tests
+├── benchmarks/             # Performance benchmarks
+├── tools/                  # Development and maintenance tools
+├── docs/                   # Documentation
+│   ├── reports/           # Test reports and analysis
+│   └── post-v1-backlog/   # Future development plans
+└── README.md              # This file
+```
+
+### Quick Start Directories
+
+- **`examples/`** - Try the live E2E test to see Perquire in action
+- **`docs/reports/`** - View detailed test results and performance analysis
+- **`benchmarks/`** - Run performance tests and comparisons
+- **`src/perquire/`** - Explore the core investigation engine
+
 ---
 
 *Perquire transforms the question from "what embeddings match this query?" to "what query would create this embedding?" - and in that inversion lies a new way of understanding the semantic spaces that AI creates.*
