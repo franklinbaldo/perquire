@@ -5,18 +5,21 @@ Development and maintenance tools for Perquire.
 ## Planned Tools
 
 ### Development Tools
+
 - **`build_knowledge_base.py`** - Wikipedia knowledge base construction
 - **`generate_questions.py`** - Mass question generation via LLM
 - **`validate_embeddings.py`** - Embedding quality validation
 - **`optimize_cache.py`** - Cache performance optimization
 
 ### Maintenance Tools
+
 - **`cleanup_database.py`** - Database maintenance and cleanup
 - **`export_results.py`** - Investigation result export utilities
 - **`migrate_config.py`** - Configuration migration tools
 - **`health_check.py`** - System health monitoring
 
 ### Analysis Tools
+
 - **`analyze_convergence.py`** - Convergence pattern analysis
 - **`profile_performance.py`** - Performance profiling utilities
 - **`compare_strategies.py`** - Investigation strategy comparison

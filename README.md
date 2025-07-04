@@ -1,6 +1,6 @@
 # Perquire
 
-*From Latin "perquirere" - to investigate thoroughly, to question deeply*
+_From Latin "perquirere" - to investigate thoroughly, to question deeply_
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.8+-blue.svg)
@@ -117,7 +117,7 @@ artistic_strategy = QuestioningStrategy(
     ],
     refinement_patterns=[
         "emotional_impact",
-        "historical_context", 
+        "historical_context",
         "technical_execution"
     ],
     convergence_threshold=0.92
@@ -237,11 +237,11 @@ investigator = PerquireInvestigator(
     max_iterations=25,                  # Maximum questions to ask
     convergence_window=3,               # Look at last 3 iterations for convergence
     min_improvement=0.001,              # Minimum improvement to continue
-    
+
     # Question generation settings
     exploration_depth=5,                # Questions in exploration phase
     refinement_focus=0.7,               # Similarity threshold to enter refinement
-    
+
     # Output settings
     verbose=True,                       # Show investigation progress
     save_history=True,                  # Keep detailed question history
@@ -301,16 +301,19 @@ investigator = PerquireInvestigator(
 ```python
 investigate(target_embedding, custom_strategy=None)
 ```
+
 Investigates a target embedding and returns an InvestigationResult object containing the discovered description and metadata.
 
 ```python
 investigate_batch(embeddings_list, parallel=True)
 ```
+
 Efficiently investigates multiple embeddings, optionally using parallel processing for faster throughput.
 
 ```python
 explain_investigation(result)
 ```
+
 Provides detailed explanation of how Perquire reached its conclusions, useful for understanding and debugging the investigation process.
 
 ## Contributing
@@ -427,4 +430,4 @@ perquire/
 
 ---
 
-*Perquire transforms the question from "what embeddings match this query?" to "what query would create this embedding?" - and in that inversion lies a new way of understanding the semantic spaces that AI creates.*
+_Perquire transforms the question from "what embeddings match this query?" to "what query would create this embedding?" - and in that inversion lies a new way of understanding the semantic spaces that AI creates._

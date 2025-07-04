@@ -11,18 +11,21 @@ Comprehensive reports from Perquire testing and validation.
 ## Report Categories
 
 ### Production Validation
+
 - Live API integration testing
 - Real-world performance metrics
 - Subjective quality evaluation
 - System reliability assessment
 
 ### Performance Analysis
+
 - Investigation speed benchmarks
 - Memory usage profiling
 - API efficiency measurements
 - Convergence behavior analysis
 
 ### Quality Metrics
+
 - LLM evaluation scores
 - Description accuracy ratings
 - User satisfaction surveys

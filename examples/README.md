@@ -15,7 +15,7 @@ cd examples
 uv run --env-file ../.env python live_e2e_test.py
 
 # Automated test with predefined inputs
-cd examples  
+cd examples
 bash run_live_e2e.sh
 ```
 
@@ -27,6 +27,7 @@ bash run_live_e2e.sh
 ## Test Results
 
 Recent live test achieved:
+
 - **4.0/5 EXCELLENT** subjective rating
 - **6.76 seconds** investigation time
 - **5-iteration convergence** with plateau detection

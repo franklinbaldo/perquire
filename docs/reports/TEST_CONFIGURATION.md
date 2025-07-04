@@ -5,6 +5,7 @@ This document provides the exact configuration and setup used for the successful
 ## Environment Setup
 
 ### System Requirements
+
 ```bash
 # Platform: Linux (WSL2)
 # Python: 3.13.5
@@ -12,6 +13,7 @@ This document provides the exact configuration and setup used for the successful
 ```
 
 ### Project Initialization
+
 ```bash
 # Clean initialization
 rm -rf .venv pyproject.toml uv.lock
@@ -31,6 +33,7 @@ uv add duckdb pandas
 ```
 
 ### Environment Variables (.env)
+
 ```env
 # Primary API key for Gemini
 GEMINI_API_KEY=your-actual-gemini-api-key-here
@@ -44,13 +47,14 @@ ANTHROPIC_API_KEY=placeholder-key-for-provider-initialization
 ## Test Script Configuration
 
 ### Live E2E Test Script (live_e2e_test.py)
+
 Key configuration parameters:
 
 ```python
 # Test content categories
 TEST_CONTENT_CATEGORIES = [
     {
-        "name": "Visual Scene", 
+        "name": "Visual Scene",
         "prompt": "A cozy coffee shop on a rainy evening with warm yellow lights"
     },
     {
@@ -83,6 +87,7 @@ result = genai.embed_content(
 ```
 
 ### Bash Test Runner (run_live_e2e.sh)
+
 ```bash
 #!/bin/bash
 
@@ -101,6 +106,7 @@ echo "✅ Live E2E Test Completed!"
 ## Perquire System Configuration
 
 ### Updated Model Names
+
 ```python
 # In src/perquire/llm/__init__.py
 DEFAULT_PROVIDER_CONFIGS = {
@@ -112,6 +118,7 @@ DEFAULT_PROVIDER_CONFIGS = {
 ```
 
 ### CLI Investigation Command
+
 ```bash
 uv run --env-file .env python -m src.perquire.cli.main investigate \
   /tmp/embedding.npy \
@@ -123,6 +130,7 @@ uv run --env-file .env python -m src.perquire.cli.main investigate \
 ## Required Dependencies
 
 ### Final pyproject.toml
+
 ```toml
 [project]
 name = "perquire-test"
@@ -152,9 +160,11 @@ dependencies = [
 ## Bug Fixes Applied
 
 ### 1. Orphaned Code Removal
+
 Removed stray code in `src/perquire/cli/main.py` lines 46-111 that referenced undefined variables.
 
 ### 2. Import Corrections
+
 ```python
 # Fixed in src/perquire/cli/main.py
 from ..exceptions import ConfigurationError, InvestigationError
@@ -162,6 +172,7 @@ PerquireException = InvestigationError  # Alias for compatibility
 ```
 
 ### 3. Attribute Name Fixes
+
 ```python
 # Fixed attribute access in display_investigation_result()
 if verbose and hasattr(result, 'question_history') and result.question_history:
@@ -172,6 +183,7 @@ if verbose and hasattr(result, 'question_history') and result.question_history:
 ## Test Execution
 
 ### Running the Test
+
 ```bash
 # Make script executable
 chmod +x run_live_e2e.sh
@@ -181,6 +193,7 @@ bash run_live_e2e.sh
 ```
 
 ### Expected Output Flow
+
 1. ✅ Gemini API connection test
 2. 📝 Content selection (automated: option 1)
 3. 🧠 Embedding generation (768-dim)
@@ -191,6 +204,7 @@ bash run_live_e2e.sh
 ## Success Criteria
 
 ### Technical Validation
+
 - [x] API connectivity successful
 - [x] Embedding generation working
 - [x] CLI investigation functional
@@ -198,12 +212,14 @@ bash run_live_e2e.sh
 - [x] Result synthesis successful
 
 ### Quality Metrics
+
 - [x] Investigation completes in <10 seconds
 - [x] Converges within reasonable iterations (5-15)
 - [x] Generates coherent descriptions
 - [x] Achieves >3.5/5 subjective rating
 
 ### System Integration
+
 - [x] All providers load without errors
 - [x] Database caching operational
 - [x] CLI interface responsive
