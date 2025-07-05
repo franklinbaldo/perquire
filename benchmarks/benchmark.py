@@ -271,14 +271,14 @@ async def main():
     parser.add_argument(
         "--llm_provider",
         type=str,
-        default="openai",
+        default="gemini",
         choices=["anthropic", "gemini", "ollama", "openai"],
         help="LLM provider to use for the benchmark."
     )
     parser.add_argument(
         "--embedding_provider",
         type=str,
-        default="openai",
+        default="gemini",
         choices=["gemini", "openai"],
         help="Embedding provider to use for the benchmark."
     )
