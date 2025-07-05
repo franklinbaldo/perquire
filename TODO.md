@@ -1,141 +1,127 @@
-# Perquire Development TODO - PRODUCTION FOCUSED
+# Perquire Development TODO
 
-_Radical cleanup: Only items that directly enable PerquireInvestigator production_
+This TODO list outlines planned tasks for the Perquire project, focusing on enhancements, new features, and maintenance. Tasks are prioritized from P0 (Critical) to P3 (Low).
 
-**Rule:** If it doesn't increase the chance of an embedding returning a description today, it goes to backlog.
+## P0: Critical / Highest Priority
 
-## 🏗️ Core Implementation - HIGH PRIORITY
+These tasks provide immediate high value, address core functionality, or are prerequisites for other important tasks.
 
-### Essential Core Classes
+- [ ] **Implement CLI Demo (`perquire demo --text "..."`)**
+    - Create a simple CLI command that takes text, generates an embedding (e.g., using `all-MiniLM-L6-v2` or a configured default), and runs the investigation loop.
+    - Utilize an in-memory DuckDB for this demo to minimize setup for new users.
+    - *Related to: docs/plan.md suggestion #1*
 
-- [x] **PerquireInvestigator Class** (`src/perquire/core/investigator.py`)
-  - [x] Implement core investigation engine
-  - [x] Add embedding similarity calculations
-  - [x] Create investigation phase management
-  - [x] Implement question generation logic
-  - [x] Add convergence detection algorithms
-  - [x] Create investigation state management
+- [ ] **Implement Pluggable Interrogator Interface**
+    - Refactor the question generation logic in `PerquireInvestigator` (currently in `_generate_question`) to use a strategy pattern.
+    - Define an `InterrogatorStrategy` interface.
+    - Allow users to pass their own interrogator strategy instance to `PerquireInvestigator`.
+    - *Related to: docs/plan.md suggestion #3*
 
-### Convergence Detection - CRITICAL
+- [ ] **Housekeeping: Review `DONE.md` & Archive Old Docs**
+    - Review the existing `DONE.md` and the previous `TODO.md` (the one this file replaces).
+    - Archive or clearly mark them as outdated to avoid confusion.
+    - Ensure this `TODO.md` becomes the single source of truth for ongoing tasks.
 
-- [x] **Convergence Algorithms** (`src/perquire/convergence/algorithms.py`)
-  - [x] Implement moving average convergence (Verified via plateau detection and recent improvements analysis)
-  - [x] Add statistical significance testing
-  - [x] Create similarity plateau detection
-  - [x] Implement early stopping mechanisms
+- [ ] **Review and Clarify Licensing**
+    - Examine question templates (e.g., in `QuestioningStrategy`) and any other assets potentially derived from LLM outputs.
+    - Ensure the project's overall licensing (MIT) is consistent and clear, addressing any sub-licensing needs for generated content.
+    - *Related to: docs/plan.md suggestion #9*
 
-## 🔢 Embedding Integration - ESSENTIAL
+- [ ] **Add Test Coverage for `src/perquire/database/duckdb_provider.py`**
+    - Write dedicated unit tests for the caching logic (get/set for embeddings, similarities, LLM generations) in `duckdb_provider.py`.
 
-### Provider Integration (Already Started)
+## P1: High Priority
 
-- [x] **Complete Provider Refactor**
-  - [x] Core provider factory (DONE)
-  - [x] Integrate with investigation engine
-  - [x] Add embedding caching (simple LRU in BaseEmbeddingProvider, DB cache in Investigator)
-  - [x] Implement batch processing (in Investigator and CLI)
+These tasks offer significant improvements or address important aspects of the project.
 
-## 🖥️ Minimal CLI - MVP
+- [ ] **Develop Public Benchmark Suite**
+    - Select 1-2 suitable open datasets (e.g., STS-Benchmark, MS MARCO dev).
+    - Create scripts/notebooks in `benchmarks/` to run Perquire on these datasets.
+    - Define and measure metrics like inversion accuracy, question count, and resource usage.
+    - Output results in a clear, shareable format (tables/charts).
+    - *Related to: docs/plan.md suggestion #2*
 
-### Core Commands Only
+- [ ] **Implement Privacy-Risk Scoring Feature**
+    - Add functionality to compare Perquire's output description against ground-truth text (if available for an embedding).
+    - Use metrics like BLEU, ROUGE, or embedding similarity for this comparison.
+    - Provide an option to flag or score "leak risk" based on the comparison.
+    - *Related to: docs/plan.md suggestion #4*
 
-- [x] **Essential CLI** (`src/perquire/cli/`)
-  - [x] `providers` command (DONE)
-  - [x] `investigate` command (single embedding)
-  - [x] `batch` command (directory processing)
-  - [x] `status` command (basic investigation history)
+- [ ] **Clarify & Complete Embedding Provider Implementations**
+    - Review `src/perquire/embeddings/gemini_embeddings.py` and `src/perquire/embeddings/openai_embeddings.py`. Determine their exact role (e.g., generating embeddings via these services vs. LLM tasks).
+    - Ensure they are fully implemented and tested if they are intended as primary embedding providers alongside sentence-transformers.
+    - Consider adding other relevant embedding provider integrations (e.g., Cohere, direct Hugging Face Hub models).
 
-## 🧪 Basic Testing - REQUIRED
+- [ ] **Verify & Test `EnsembleInvestigator`**
+    - Review the implementation of `EnsembleInvestigator` in `src/perquire/core/ensemble.py`.
+    - Ensure it is fully functional, with comprehensive tests.
+    - *Mentioned in README.md and POST-V1 BACKLOG*
 
-### Core Tests Only
+- [ ] **Set Up Documentation Generation & Hosting**
+    - Configure Sphinx with autodoc (or similar tool) to generate documentation from docstrings.
+    - Publish the documentation to ReadTheDocs or GitHub Pages.
+    - Ensure the link `https://perquire.readthedocs.io` (from `README.md`) points to the live documentation.
 
-- [x] **Essential Tests** (`tests/`)
-  - [x] Test PerquireInvestigator class
-  - [x] Test convergence algorithms
-  - [x] Test provider integration
-  - [x] Test CLI basic functionality
+- [ ] **Enhance CLI Functionality**
+    - Review existing CLI commands (`providers`, `investigate`, `batch`, `status`) for usability, features, and consistency.
+    - Add a `--json` output option for all relevant commands to support scriptability.
 
-## 🔄 CI Pipeline - MINIMAL
+## P2: Medium Priority
 
-### Essential CI
+Valuable additions that can follow P0 and P1 tasks.
 
-- [x] **Basic CI** (`.github/workflows/`)
-  - [x] Test automation (unit tests only)
-  - [x] Lint checks (ruff)
-  - [x] Basic release automation
+- [ ] **Create REST Microservice for Perquire**
+    - Develop a simple FastAPI application.
+    - Expose an `/invert` endpoint: input an embedding (or text to be embedded), returns investigation result.
+    - Consider a `/probe` endpoint for asking a single question against an embedding or similar focused interactions.
+    - *Related to: docs/plan.md suggestion #5*
 
-## 🎯 Performance - CRITICAL PATH ONLY
+- [ ] **Flesh Out Benchmarking Scripts in `benchmarks/`**
+    - Improve `benchmarks/benchmark.py` and `benchmarks/simple_benchmark.py`.
+    - Ensure these scripts are robust and usable for the Public Benchmark Suite task (P1).
 
-### Caching (Essential)
+- [ ] **Systematic Error Handling and Resilience Pass**
+    - Conduct a thorough review of the codebase to identify areas where error handling can be improved.
+    - Focus on API calls, file I/O, unexpected data formats, and external service interactions.
+    - Ensure graceful failure modes and informative error messages.
 
-- [x] **Basic Caching** (`src/perquire/cache/`) (Implemented in providers/investigator/db, not explicitly in src/perquire/cache/ module)
-  - [x] Implement embedding cache with LRU eviction (In BaseEmbeddingProvider)
-  - [x] Add question result caching (In Investigator via DB)
-  - [x] Simple file-based persistence (Via DB provider like DuckDB)
+- [ ] **Determine Fate of `src/perquire/cache/` Directory**
+    - The directory `src/perquire/cache/` currently only contains `__init__.py`.
+    - Confirm if the current database-driven caching in `PerquireInvestigator` and LRU caching in providers is sufficient.
+    - If `src/perquire/cache/` is not needed for distinct functionality, remove it.
 
----
+- [ ] **Create Public Roadmap (`ROADMAP.md`)**
+    - Develop a `ROADMAP.md` file.
+    - Outline planned features, milestones (e.g., v0.2, v0.3, v1.0), and general project direction.
+    - *Related to: docs/plan.md suggestion #10*
 
-## 📋 Priority Matrix (LASER FOCUSED)
+## P3: Low Priority
 
-### 🎯 Sprint 1 - MVP Core (1-2 weeks)
+Nice-to-haves or more advanced features for later stages.
 
-1. ✅ Provider factory (DONE)
-2. ✅ Lean CLI architecture (DONE)
-3. ✅ **PerquireInvestigator implementation**
-4. ✅ **Basic convergence detection**
-5. ✅ CLI `investigate` command (single embedding → description)
+- [ ] **Add Interactive Visualizations (Plotly)**
+    - For Jupyter notebook environments, enhance or create interactive visualizations.
+    - Examples: Plot similarity scores over iterations, display cosine similarity heatmaps.
+    - *Related to: docs/plan.md suggestion #7*
 
-### 🚀 Sprint 2 - Production Ready (1 week)
+- [ ] **Review and Refine Configuration Handling**
+    - The `docs/plan.md` mentioned a potential `configs/` folder (not observed in current listings). If it exists and is problematic, address it.
+    - Generally, review how configuration is loaded and managed. Ensure defaults are sensible and override mechanisms (env vars, constructor args) are clear and well-documented.
+    - *Related to: docs/plan.md suggestion #6*
 
-1. ✅ Embedding caching (simple file-based LRU)
-2. ✅ Batch processing (simple loop over directory)
-3. ✅ Essential tests (core functionality only)
-4. ✅ Basic CI pipeline (tests + lint)
+- [ ] **Incrementally Improve MyPy Strictness**
+    - Work towards stricter MyPy compliance.
+    - Add type stubs or refine type hints for dependencies to reduce `--ignore-missing-imports`.
+    - Resolve type redefinitions flagged by `--allow-redefinition`.
 
-### 🎉 Sprint 3 - Release (3-5 days)
+- [ ] **Investigate Model Drift Alerts (Advanced Feature)**
+    - Explore feasibility of a system to monitor production vectors and detect distribution drift compared to the embedding model's baseline.
+    - This is a longer-term research/advanced feature.
+    - *Related to: docs/plan.md suggestion #8*
 
-1. ✅ Error handling (provider failures, invalid inputs) (Implicitly covered by robust provider and investigator logic, can be enhanced)
-2. ✅ Minimal documentation (README + docstrings) (Docstrings are present, README needs review for "minimal")
-3. ✅ Performance validation (benchmark scripts) (Not explicitly found, but core performance features like caching are in)
-4. ✅ v0.1.0 release to PyPI (Release workflow exists)
-
-**Definition of Done:** `pip install perquire[api-gemini]` → `perquire investigate embedding.json` → returns description
-
----
-
-## 🗑️ POST-V1 BACKLOG (Moved from TODO)
-
-_Everything below was removed from active TODO but preserved for future consideration_
-
-### Removed for Post-V1:
-
-- Plugin System & Marketplace
-- Extension Framework
-- Mobile Interface (React Native)
-- Cross-platform/ARM builds
-- Third-party ML integrations (W&B, MLflow, etc.)
-- Advanced Optimization & Profiling Suite
-- Analytics & Reporting System
-- Cloud Deployment Templates
-- Web UI (FastAPI + React dashboard)
-- Hugging Face local embeddings
-- Community/Governance/Outreach
-- Advanced Config & Migration framework
-- EnsembleInvestigator (nice-to-have)
-- BatchInvestigator (can be simple loop)
-- Research Features
-- Monitoring & Observability
-- Security & Privacy features
-- Documentation beyond basic README
-- Performance profiling tools
-
-### Why Removed:
-
-- **Zero users, zero data** - Analytics/reporting meaningless without usage
-- **API surface creep** - Extensions/plugins before stable core API
-- **Premature optimization** - Profiling without real bottlenecks
-- **Infrastructure over algorithm** - Cloud deployment doesn't improve core functionality
-- **Nice-to-have complexity** - Ensemble, mobile, etc. are post-validation features
+- [ ] **Review Need for Separate `BatchInvestigator` Class**
+    - `PerquireInvestigator` has an `investigate_batch` method.
+    - Evaluate if a separate `BatchInvestigator` class (mentioned in POST-V1 BACKLOG) offers significant advantages or if the existing method is sufficient.
 
 ---
-
-_Focus: Get embeddings → descriptions working reliably. Everything else is distraction._
+_This TODO list is a living document and will be updated as the project progresses._
