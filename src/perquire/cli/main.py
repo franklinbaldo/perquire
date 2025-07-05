@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Optional, List
 
 from ..providers import list_available_providers, ProviderNotInstalledError
+from ..core.strategy import strategy_registry
 
 console = Console()
 
@@ -333,10 +334,18 @@ def create_investigator_from_cli_options(
     elif verbose:
         console.print("[dim]Database path not specified. Results will not be saved to a persistent database.[/dim]", style="dim")
 
+    # Determine questioning strategy
+    try:
+        strategy_instance = strategy_registry.get(strategy_name)
+    except KeyError:
+        available = ', '.join(strategy_registry.list_names())
+        raise click.UsageError(f"Unknown strategy '{strategy_name}'. Available: {available}")
+
     try:
         investigator = PerquireInvestigator(
             llm_provider=final_llm_provider_name,
             embedding_provider=final_embedding_provider_name,
+            questioning_strategy=strategy_instance,
             database_provider=db_provider_instance,
         )
         if verbose:
@@ -387,7 +396,12 @@ def display_investigation_result(result: Any, verbose: bool = False):
 @click.argument('embedding_file', type=click.Path(exists=True, dir_okay=False, resolve_path=True))
 @click.option('--llm-provider', 'cli_llm_provider',help='LLM provider (e.g., openai, gemini). Overrides global config.')
 @click.option('--embedding-provider', 'cli_embedding_provider', help='Embedding provider for questions. Overrides global config.')
-@click.option('--strategy', 'cli_strategy', help='Questioning strategy name.') # TODO: Add choices from a registry
+@click.option(
+    '--strategy',
+    'cli_strategy',
+    type=click.Choice(strategy_registry.list_names()),
+    help='Questioning strategy name.'
+)
 @click.option('--database', 'cli_database_path', help='Database path for results. Overrides global config.')
 @click.option('--verbose', '-v', is_flag=True, help='Enable verbose output.')
 @click.option('--format', 'file_format', default='npy', type=click.Choice(['npy', 'json', 'txt'], case_sensitive=False), help='Embedding file format.')
@@ -471,7 +485,12 @@ def display_batch_summary(results: List[tuple[Path, Any]], output_dir_obj: Optio
 @click.argument('embeddings_dir', type=click.Path(exists=True, file_okay=False, resolve_path=True))
 @click.option('--llm-provider', 'cli_llm_provider', help='LLM provider. Overrides global config.')
 @click.option('--embedding-provider', 'cli_embedding_provider', help='Embedding provider for questions. Overrides global config.')
-@click.option('--strategy', 'cli_strategy', help='Questioning strategy name.')
+@click.option(
+    '--strategy',
+    'cli_strategy',
+    type=click.Choice(strategy_registry.list_names()),
+    help='Questioning strategy name.'
+)
 @click.option('--database', 'cli_database_path', help='Database path. Overrides global config.')
 @click.option('--limit', '-l', type=int, help='Limit number of files to process.')
 @click.option('--format', 'file_format', default='npy', type=click.Choice(['npy', 'json', 'txt'], case_sensitive=False), help='Embedding file format.')

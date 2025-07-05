@@ -10,6 +10,39 @@ import random
 from ..exceptions import ValidationError, QuestionGenerationError
 
 
+class QuestioningStrategyRegistry:
+    """Registry for managing available questioning strategies."""
+
+    def __init__(self) -> None:
+        self._strategies: Dict[str, "QuestioningStrategy"] = {}
+        self._default: Optional[str] = None
+
+    def register(self, name: str, strategy: "QuestioningStrategy", set_as_default: bool = False) -> None:
+        """Register a strategy with the given name."""
+        self._strategies[name] = strategy
+        if set_as_default or self._default is None:
+            self._default = name
+
+    def get(self, name: Optional[str] = None) -> "QuestioningStrategy":
+        """Retrieve a strategy by name or return the default."""
+        if name is None:
+            if self._default is None:
+                raise KeyError("No strategy registered")
+            name = self._default
+        if name not in self._strategies:
+            raise KeyError(f"Strategy '{name}' not found")
+        return self._strategies[name]
+
+    def list_names(self) -> List[str]:
+        """Return a list of registered strategy names."""
+        return list(self._strategies.keys())
+
+    def set_default(self, name: str) -> None:
+        if name not in self._strategies:
+            raise KeyError(f"Strategy '{name}' not found")
+        self._default = name
+
+
 class InvestigationPhase(Enum):
     """Investigation phases enum."""
     EXPLORATION = "exploration"
@@ -404,3 +437,11 @@ def create_emotional_strategy() -> QuestioningStrategy:
         refinement_threshold=0.78,
         min_improvement=0.0005  # More sensitive to subtle emotional nuances
     )
+
+
+# Global registry with some predefined strategies
+strategy_registry = QuestioningStrategyRegistry()
+strategy_registry.register("default", QuestioningStrategy(), set_as_default=True)
+strategy_registry.register("artistic", create_artistic_strategy())
+strategy_registry.register("scientific", create_scientific_strategy())
+strategy_registry.register("emotional", create_emotional_strategy())

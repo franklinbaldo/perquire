@@ -3,7 +3,11 @@ Core components of the Perquire library.
 """
 
 from .result import InvestigationResult, QuestionResult
-from .strategy import QuestioningStrategy, InvestigationPhase
+from .strategy import (
+    QuestioningStrategy,
+    InvestigationPhase,
+    strategy_registry,
+)
 from .investigator import PerquireInvestigator
 from .ensemble import EnsembleInvestigator
 
@@ -12,6 +16,7 @@ __all__ = [
     "QuestionResult",
     "QuestioningStrategy",
     "InvestigationPhase",
+    "strategy_registry",
     "PerquireInvestigator",
     "EnsembleInvestigator",
 ]
