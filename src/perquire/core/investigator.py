@@ -8,8 +8,8 @@ from datetime import datetime
 import numpy as np
 import uuid
 
-from .result import InvestigationResult, QuestionResult
-from .strategy import QuestioningStrategy, InvestigationPhase
+from .result import InvestigationResult, QuestionResult, QuestionAnswer
+from .strategy import QuestioningStrategy, InvestigationPhase, InterrogatorStrategy, DefaultInterrogatorStrategy
 from ..llm.base import BaseLLMProvider, provider_registry as llm_registry
 from ..embeddings.base import BaseEmbeddingProvider, embedding_registry
 from ..embeddings.utils import cosine_similarity
@@ -41,7 +41,8 @@ class PerquireInvestigator:
         self,
         llm_provider: Optional[Union[str, BaseLLMProvider]] = None,
         embedding_provider: Optional[Union[str, BaseEmbeddingProvider]] = None,
-        questioning_strategy: Optional[QuestioningStrategy] = None,
+        questioning_strategy: Optional[QuestioningStrategy] = None, # Retained for DefaultInterrogatorStrategy
+        interrogator_strategy: Optional[InterrogatorStrategy] = None, # New pluggable strategy
         database_provider: Optional[BaseDatabaseProvider] = None,
         convergence_detector: Optional[ConvergenceDetector] = None,
         config: Optional[Dict[str, Any]] = None

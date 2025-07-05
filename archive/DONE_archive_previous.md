@@ -1,4 +1,6 @@
-# Perquire Development - Completed Tasks
+# ARCHIVED - Perquire Development - Completed Tasks (Pre-TODO.md Refactor)
+
+**This document is an archive of tasks completed before the main `TODO.md` was established as the single source of truth. Refer to the current `TODO.md` for ongoing and future tasks.**
 
 _Completed features and implementations for the Perquire project_
 
