@@ -610,5 +610,44 @@ def list_embedding_files(directory: Path, format: str, limit: Optional[int] = No
 # ... (functions commented out - require heavy dependencies)
 
 
+# --- Web UI Command ---
+try:
+    from ..web.main import main as web_main_runner
+
+    @cli.command("serve")
+    @click.option('--host', default="127.0.0.1", help="Host to bind the web server to.", show_default=True, type=str)
+    @click.option('--port', default=8000, help="Port to bind the web server to.", show_default=True, type=int)
+    @click.option('--database', default="perquire.db", help="Database file path for the web app.", show_default=True, type=click.Path())
+    @click.option('--reload', is_flag=True, help="Enable auto-reload for development (requires 'watchfiles').")
+    def serve(host: str, port: int, database: str, reload: bool):
+        """Launch the Perquire web interface."""
+        console.print(f"🚀 Launching Perquire web interface on http://{host}:{port}")
+        import sys
+        original_argv = sys.argv
+        sim_argv = ["perquire-web", "--host", host, "--port", str(port), "--database", database]
+        if reload:
+            sim_argv.append("--reload")
+        sys.argv = sim_argv
+        try:
+            web_main_runner()
+        except ImportError as e:
+            if "watchfiles" in str(e).lower() and reload:
+                 console.print(f"[red]Error: To use --reload, 'watchfiles' must be installed. Try: `pip install watchfiles`[/red]")
+            elif any(dep in str(e).lower() for dep in ["fastapi", "uvicorn"]):
+                console.print(f"[red]Failed to launch web interface due to missing dependency: {e}[/red]")
+                console.print(f"[yellow]Ensure web dependencies are installed: pip install \"perquire[web]\"[/yellow]")
+            else:
+                console.print(f"[red]ImportError launching web interface: {e}[/red]")
+        except Exception as e:
+            console.print(f"[red]Error running web interface: {e}[/red]")
+        finally:
+            sys.argv = original_argv
+except ImportError:
+    @cli.command("serve")
+    def serve_disabled_import_error():
+        """Launch the Perquire web interface (DISABLED - dependencies missing)."""
+        console.print("[yellow]Web interface components not found. To enable, install web dependencies: pip install \"perquire[web]\"[/yellow]")
+# --- End of Web UI Command ---
+
 if __name__ == '__main__':
     cli()

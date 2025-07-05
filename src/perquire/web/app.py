@@ -17,9 +17,14 @@ import tempfile
 import logging
 from datetime import datetime
 
-from .. import create_investigator, create_ensemble_investigator, investigate_embedding
-from ..core import InvestigationResult
-from ..exceptions import InvestigationError
+# Updated import: remove investigate_embedding, factories are now in perquire's __init__
+from .. import create_investigator, create_ensemble_investigator
+from ..core import InvestigationResult # This should be fine if exposed by core/__init__.py
+from ..exceptions import InvestigationError # This should be fine if exposed by exceptions.py
+# Direct DB imports are still needed for status/listing endpoints
+from ..database.duckdb_provider import DuckDBProvider
+from ..database.base import DatabaseConfig
+
 
 logger = logging.getLogger(__name__)
 

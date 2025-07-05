@@ -73,6 +73,34 @@ export ANTHROPIC_API_KEY="your-key-here"
 export PERQUIRE_LOCAL_MODEL_PATH="/path/to/your/model"
 ```
 
+## Web Interface
+
+Perquire also includes a web interface for easy interaction and batch processing. To use it, you'll need to install the web dependencies:
+
+```bash
+pip install "perquire[web]"
+# or if you installed from source:
+# pip install -e ".[web]"
+```
+
+Once installed, you can launch the web server using the CLI:
+
+```bash
+perquire serve
+```
+
+By default, this will start the server at `http://127.0.0.1:8000`. You can customize the host, port, database, and enable auto-reload for development:
+
+```bash
+perquire serve --host 0.0.0.0 --port 8080 --database my_investigations.db --reload
+```
+
+The web interface provides:
+- Manual embedding input and investigation.
+- File upload for embeddings (.json, .npy, .txt, .csv).
+- Batch investigation capabilities.
+- A status page to view investigation statistics and history.
+
 ## How It Works
 
 Understanding Perquire requires grasping three key concepts that work together like instruments in an orchestra.
