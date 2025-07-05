@@ -404,3 +404,104 @@ def create_emotional_strategy() -> QuestioningStrategy:
         refinement_threshold=0.78,
         min_improvement=0.0005  # More sensitive to subtle emotional nuances
     )
+
+# --- InterrogatorStrategy Interface ---
+from abc import ABC, abstractmethod
+from perquire.core.result import QuestionAnswer # Assuming QuestionAnswer is a suitable type for history items
+
+class InterrogatorStrategy(ABC):
+    """
+    Abstract base class for interrogator strategies.
+    Defines the interface for generating questions during an investigation.
+    """
+
+    @abstractmethod
+    def generate_question(
+        self,
+        history: List[QuestionAnswer], # History of (question_text, similarity_score)
+        current_similarity: float, # Current highest similarity
+        target_embedding: Optional[Any] = None, # The embedding being investigated
+        investigator_context: Optional[Dict[str, Any]] = None # Broader context from investigator
+    ) -> str:
+        """
+        Generate the next question based on the investigation history and current state.
+
+        Args:
+            history: A list of QuestionAnswer objects representing past questions and their similarities.
+            current_similarity: The current highest similarity score achieved.
+            target_embedding: The embedding vector being investigated (optional, if strategy needs it).
+            investigator_context: A dictionary for any other contextual information the
+                                  investigator might want to pass to the strategy.
+
+        Returns:
+            A string representing the next question to ask.
+        """
+        pass
+
+
+class DefaultInterrogatorStrategy(InterrogatorStrategy):
+    """
+    Default interrogator strategy that mimics the original behavior of
+    PerquireInvestigator's _generate_question method.
+    It uses a QuestioningStrategy object to determine phases and select templates.
+    """
+    def __init__(self, questioning_strategy: Optional[QuestioningStrategy] = None, llm_provider: Optional[Any] = None):
+        """
+        Args:
+            questioning_strategy: The QuestioningStrategy instance to use for phase
+                                  determination and template selection. If None, a
+                                  default QuestioningStrategy will be created.
+            llm_provider: The LLM provider instance. Required if the strategy needs
+                          to generate questions dynamically using an LLM (though this
+                          default one primarily uses templates).
+        """
+        self.questioning_strategy = questioning_strategy or QuestioningStrategy()
+        self.llm_provider = llm_provider # Retain for potential future use or more complex defaults
+        self._used_questions: List[str] = [] # Internal state to track used questions per investigation
+
+    def generate_question(
+        self,
+        history: List[QuestionAnswer],
+        current_similarity: float,
+        target_embedding: Optional[Any] = None, # Not used by this simple default
+        investigator_context: Optional[Dict[str, Any]] = None # Not used by this simple default
+    ) -> str:
+        """
+        Generates a question based on the current phase and available templates.
+        """
+        iteration = len(history)
+
+        # Determine phase using the associated QuestioningStrategy
+        phase = self.questioning_strategy.determine_phase(current_similarity, iteration)
+
+        # Context for template filling (can be expanded)
+        q_context = {
+            "current_similarity": current_similarity,
+            "iteration": iteration,
+            "phase": phase.value,
+            # Potentially add elements from history if templates can use them
+        }
+        if investigator_context:
+            q_context.update(investigator_context)
+
+        try:
+            # Use the QuestioningStrategy's question generation logic
+            question = self.questioning_strategy.generate_question(
+                phase=phase,
+                context=q_context,
+                used_questions=self._used_questions
+            )
+            self._used_questions.append(question)
+            return question
+        except QuestionGenerationError as e:
+            # If QuestioningStrategy runs out of unique questions, fallback or raise
+            # For this default, we might try a generic fallback or re-raise
+            # A more sophisticated strategy might use an LLM to generate a novel question here.
+            # Example fallback:
+            # if self.llm_provider:
+            #     return self.llm_provider.generate_text(f"Based on the previous questions and answers, what is a good next question to clarify the topic? History: {history}")
+            raise QuestionGenerationError(f"DefaultInterrogatorStrategy failed to generate a question: {e}")
+
+    def reset_state(self):
+        """Resets any internal state, like the list of used questions."""
+        self._used_questions = []

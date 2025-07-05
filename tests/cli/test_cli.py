@@ -185,3 +185,105 @@ def test_cli_batch_command(runner, mock_investigator_instance, tmp_path):
     assert "dummy_emb_0.npy" in result.output # File names in summary
     assert "dummy_emb_1.npy" in result.output
     assert "dummy_emb_2.npy" in result.output
+
+
+# --- Test for Demo Command ---
+# Mock the DemoEmbeddingProvider and PerquireInvestigator used in the demo command
+@pytest.fixture
+def mock_demo_embedding_provider():
+    mock_provider = MagicMock(name="MockDemoEmbeddingProviderInstance")
+    mock_provider.get_embedding.return_value = np.array([0.5, 0.5, 0.5], dtype=np.float32)
+    mock_provider.get_embedding_model_name.return_value = "mock-demo-model"
+    return mock_provider
+
+@pytest.fixture
+def mock_demo_investigator_instance(): # Similar to mock_investigator_instance but for demo
+    mock = MagicMock(name="MockDemoPerquireInvestigatorInstance")
+    mock_inv_result_data = {
+        "investigation_id": "demo_mock_id_456",
+        "description": "Demo Command Mocked Description",
+        "final_similarity": 0.95,
+        "iterations": 3,
+        "start_time": "2024-01-02T10:00:00",
+        "end_time": "2024-01-02T10:01:00",
+        "strategy_name": "demo_mock_strategy",
+        "model_config": {"llm_provider": {"provider":"mock_demo_llm"}, "embedding_provider":{"provider":"mock-demo-model"}},
+        "questions_history": [],
+        "convergence_reason": "similarity_threshold",
+        "phase_reached": "convergence"
+    }
+    mock_result_obj = InvestigationResult.from_dict(mock_inv_result_data)
+    mock.investigate.return_value = mock_result_obj
+    return mock
+
+# Patch targets for the demo command are in 'perquire.cli.demo'
+def test_cli_demo_text_command(runner, mock_demo_embedding_provider, mock_demo_investigator_instance):
+    """Test the 'demo text' command with mocks."""
+    test_input_text = "This is a test sentence for the demo."
+
+    # Mock PerquireInvestigator instantiation within perquire.cli.demo
+    with patch('perquire.cli.demo.PerquireInvestigator', return_value=mock_demo_investigator_instance) as mock_investigator_init:
+        # Mock DemoEmbeddingProvider instantiation within perquire.cli.demo
+        with patch('perquire.cli.demo.DemoEmbeddingProvider', return_value=mock_demo_embedding_provider) as mock_emb_provider_init:
+            # Mock OpenAIProvider instantiation (or other default LLM provider)
+            with patch('perquire.cli.demo.OpenAIProvider') as mock_llm_provider_init: # Assuming OpenAI is default
+                mock_llm_service_instance = MagicMock(name="MockOpenAIService")
+                mock_llm_provider_init.return_value = mock_llm_service_instance
+
+                result = runner.invoke(perquire_cli_app, [
+                    'demo', 'text',
+                    '--text', test_input_text,
+                    '--llm-provider', 'openai' # Specify to match mock
+                ])
+
+    assert result.exit_code == 0, f"CLI demo command exited with error: {result.output}"
+
+    # Check that our mocks were used
+    mock_emb_provider_init.assert_called_once()
+    mock_demo_embedding_provider.get_embedding.assert_called_once_with(test_input_text)
+
+    mock_llm_provider_init.assert_called_once() # Check LLM provider was init
+
+    mock_investigator_init.assert_called_once()
+    # Example: Check some args passed to PerquireInvestigator constructor
+    args, kwargs = mock_investigator_init.call_args
+    assert kwargs.get('embedding_provider') == mock_demo_embedding_provider
+    assert kwargs.get('llm_provider') == mock_llm_service_instance
+    assert kwargs.get('db_path') == ":memory:"
+
+    mock_demo_investigator_instance.investigate.assert_called_once()
+    # Check that the embedding from DemoEmbeddingProvider was passed to investigate
+    np.testing.assert_array_equal(
+        mock_demo_investigator_instance.investigate.call_args[0][0], # First positional arg (target_embedding)
+        np.array([0.5, 0.5, 0.5], dtype=np.float32)
+    )
+
+    assert "Investigating text:" in result.output
+    assert test_input_text in result.output
+    assert "Demo Command Mocked Description" in result.output
+    assert "0.9500" in result.output # Similarity
+    assert "Iterations: 3" in result.output
+
+def test_cli_demo_text_command_missing_text_option(runner):
+    """Test 'demo text' command fails if --text option is missing."""
+    result = runner.invoke(perquire_cli_app, ['demo', 'text'])
+    assert result.exit_code != 0
+    assert "Error: Missing option '--text'." in result.output
+
+def test_cli_demo_text_command_error_handling(runner):
+    """Test 'demo text' command error handling during investigation."""
+    test_input_text = "Error inducing text."
+    with patch('perquire.cli.demo.PerquireInvestigator') as mock_investigator_init:
+        mock_investigator_instance = MagicMock()
+        mock_investigator_instance.investigate.side_effect = Exception("Test investigation error")
+        mock_investigator_init.return_value = mock_investigator_instance
+
+        with patch('perquire.cli.demo.DemoEmbeddingProvider'): # Mock this too
+            with patch('perquire.cli.demo.OpenAIProvider'):
+                result = runner.invoke(perquire_cli_app, [
+                    'demo', 'text',
+                    '--text', test_input_text
+                ])
+
+    assert result.exit_code == 0 # Command itself handles exception and prints error, doesn't exit with error code
+    assert "An error occurred: Test investigation error" in result.output

@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Live E2E test for Perquire embedding investigation"
 readme = "README.md"
 requires-python = ">=3.13"
+license = {text = "MIT"}
 dependencies = [
     "anthropic>=0.56.0",
     "click>=8.2.1",

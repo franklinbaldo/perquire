@@ -649,5 +649,28 @@ except ImportError:
         console.print("[yellow]Web interface components not found. To enable, install web dependencies: pip install \"perquire[web]\"[/yellow]")
 # --- End of Web UI Command ---
 
+# --- Demo Command Group ---
+try:
+    from .demo import text_demo as demo_text_command
+
+    @click.group("demo")
+    def demo_group():
+        """Commands for demonstrating Perquire's capabilities."""
+        pass
+
+    demo_group.add_command(demo_text_command)
+    cli.add_command(demo_group)
+
+except ImportError as e:
+    # This might happen if core components are missing in a very lean setup,
+    # though demo.py itself tries to be somewhat self-contained.
+    @cli.command("demo")
+    def demo_disabled_import_error():
+        """Access demo commands (DISABLED - error importing demo components)."""
+        console.print(f"[yellow]Demo commands are unavailable due to an import error: {e}[/yellow]")
+        console.print(f"[yellow]Please ensure all core Perquire components are correctly installed.[/yellow]")
+
+# --- End of Demo Command Group ---
+
 if __name__ == '__main__':
     cli()
