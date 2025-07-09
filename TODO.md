@@ -1,127 +1,148 @@
-# Perquire Development TODO
+# PERQUIRE TODO - MAJOR COMPLEXITY ISSUES 🚨
 
-This TODO list outlines planned tasks for the Perquire project, focusing on enhancements, new features, and maintenance. Tasks are prioritized from P0 (Critical) to P3 (Low).
+## 🔥 CRITICAL OVERENGINEERING DETECTED
 
-## P0: Critical / Highest Priority
+PERQUIRE has severe over-abstraction issues, particularly in database operations that should be simple DuckDB calls.
 
-These tasks provide immediate high value, address core functionality, or are prerequisites for other important tasks.
+### 🚨 PRIORITY 1: MASSIVE OVER-ABSTRACTION
 
-- [ ] **Implement CLI Demo (`perquire demo --text "..."`)**
-    - Create a simple CLI command that takes text, generates an embedding (e.g., using `all-MiniLM-L6-v2` or a configured default), and runs the investigation loop.
-    - Utilize an in-memory DuckDB for this demo to minimize setup for new users.
-    - *Related to: docs/plan.md suggestion #1*
+#### Database Provider Monolith (832 lines!)
+- [ ] **SIMPLIFY**: `src/perquire/database/duckdb_provider.py` - **832 lines!**
+  - **Issue**: 832 lines for what should be simple DuckDB operations
+  - **Analysis**: This is a classic over-abstraction anti-pattern
+  - **Target**: Reduce to 100-150 lines maximum
+  - **Action**: Replace complex abstractions with direct DuckDB calls
 
-- [ ] **Implement Pluggable Interrogator Interface**
-    - Refactor the question generation logic in `PerquireInvestigator` (currently in `_generate_question`) to use a strategy pattern.
-    - Define an `InterrogatorStrategy` interface.
-    - Allow users to pass their own interrogator strategy instance to `PerquireInvestigator`.
-    - *Related to: docs/plan.md suggestion #3*
+#### God-Object Investigator (712 lines!)
+- [ ] **SPLIT**: `src/perquire/core/investigator.py` - **712 lines!**
+  - **Issue**: Single class handling too many responsibilities
+  - **Target**: Split into focused modules:
+    - `investigator/query_processor.py`
+    - `investigator/data_analyzer.py` 
+    - `investigator/result_formatter.py`
+  - **Goal**: 150-200 lines per module
 
-- [ ] **Housekeeping: Review `DONE.md` & Archive Old Docs**
-    - Review the existing `DONE.md` and the previous `TODO.md` (the one this file replaces).
-    - Archive or clearly mark them as outdated to avoid confusion.
-    - Ensure this `TODO.md` becomes the single source of truth for ongoing tasks.
+#### Massive CLI (675 lines!)
+- [ ] **SPLIT**: `src/perquire/cli/main.py` - **675 lines!**
+  - **Issue**: CLI god-object handling all commands
+  - **Target**: Split into command modules:
+    - `cli/commands/search.py`
+    - `cli/commands/analyze.py`
+    - `cli/commands/database.py`
+  - **Goal**: 100-150 lines per command module
 
-- [ ] **Review and Clarify Licensing**
-    - Examine question templates (e.g., in `QuestioningStrategy`) and any other assets potentially derived from LLM outputs.
-    - Ensure the project's overall licensing (MIT) is consistent and clear, addressing any sub-licensing needs for generated content.
-    - *Related to: docs/plan.md suggestion #9*
+### 🎯 SPECIFIC SIMPLIFICATION TARGETS
 
-- [ ] **Add Test Coverage for `src/perquire/database/duckdb_provider.py`**
-    - Write dedicated unit tests for the caching logic (get/set for embeddings, similarities, LLM generations) in `duckdb_provider.py`.
+#### Database Provider Over-Abstraction
+Current pattern (WRONG):
+```python
+# 832 lines of abstraction for simple operations
+class DuckDBProvider:
+    def complex_query_builder(self):  # 50+ lines
+    def connection_pooling(self):     # 30+ lines  
+    def query_optimization(self):     # 40+ lines
+    def result_transformation(self):  # 60+ lines
+    # ... hundreds more lines
+```
 
-## P1: High Priority
+Simple approach (RIGHT):
+```python
+# Should be ~50 lines maximum
+import duckdb
 
-These tasks offer significant improvements or address important aspects of the project.
+def execute_query(query: str, params: list = None):
+    conn = duckdb.connect('perquire.duckdb')
+    return conn.execute(query, params or []).fetchall()
 
-- [ ] **Develop Public Benchmark Suite**
-    - Select 1-2 suitable open datasets (e.g., STS-Benchmark, MS MARCO dev).
-    - Create scripts/notebooks in `benchmarks/` to run Perquire on these datasets.
-    - Define and measure metrics like inversion accuracy, question count, and resource usage.
-    - Output results in a clear, shareable format (tables/charts).
-    - *Related to: docs/plan.md suggestion #2*
+def insert_data(table: str, data: dict):
+    # Simple insert logic
+    
+def search_documents(query: str):
+    # Direct DuckDB search
+```
 
-- [ ] **Implement Privacy-Risk Scoring Feature**
-    - Add functionality to compare Perquire's output description against ground-truth text (if available for an embedding).
-    - Use metrics like BLEU, ROUGE, or embedding similarity for this comparison.
-    - Provide an option to flag or score "leak risk" based on the comparison.
-    - *Related to: docs/plan.md suggestion #4*
+### 🔢 COMPLEXITY BREAKDOWN
 
-- [ ] **Clarify & Complete Embedding Provider Implementations**
-    - Review `src/perquire/embeddings/gemini_embeddings.py` and `src/perquire/embeddings/openai_embeddings.py`. Determine their exact role (e.g., generating embeddings via these services vs. LLM tasks).
-    - Ensure they are fully implemented and tested if they are intended as primary embedding providers alongside sentence-transformers.
-    - Consider adding other relevant embedding provider integrations (e.g., Cohere, direct Hugging Face Hub models).
+#### Current Situation (EXCESSIVE):
+- `duckdb_provider.py`: 832 lines
+- `investigator.py`: 712 lines  
+- `cli/main.py`: 675 lines
+- **Total**: 2,219 lines in just 3 files!
 
-- [ ] **Verify & Test `EnsembleInvestigator`**
-    - Review the implementation of `EnsembleInvestigator` in `src/perquire/core/ensemble.py`.
-    - Ensure it is fully functional, with comprehensive tests.
-    - *Mentioned in README.md and POST-V1 BACKLOG*
+#### Target After Simplification:
+- Database operations: ~100 lines (8x reduction)
+- Investigator modules: ~450 lines total (1.5x reduction)
+- CLI commands: ~400 lines total (1.7x reduction)
+- **Total**: ~950 lines (2.3x reduction)
 
-- [ ] **Set Up Documentation Generation & Hosting**
-    - Configure Sphinx with autodoc (or similar tool) to generate documentation from docstrings.
-    - Publish the documentation to ReadTheDocs or GitHub Pages.
-    - Ensure the link `https://perquire.readthedocs.io` (from `README.md`) points to the live documentation.
+### 🛠️ REFACTORING PLAN
 
-- [ ] **Enhance CLI Functionality**
-    - Review existing CLI commands (`providers`, `investigate`, `batch`, `status`) for usability, features, and consistency.
-    - Add a `--json` output option for all relevant commands to support scriptability.
+#### Phase 1: Database Simplification (HIGHEST PRIORITY)
+- [ ] **Analyze**: What does the 832-line provider actually do?
+- [ ] **Extract**: Core DuckDB operations (probably 50-100 lines of actual logic)
+- [ ] **Replace**: Complex abstractions with direct DuckDB calls
+- [ ] **Test**: Ensure functionality is preserved
 
-## P2: Medium Priority
+#### Phase 2: Investigator Decomposition  
+- [ ] **Identify**: Distinct responsibilities within the 712-line god-object
+- [ ] **Split**: Into focused modules by functionality
+- [ ] **Simplify**: Each module to have single responsibility
 
-Valuable additions that can follow P0 and P1 tasks.
+#### Phase 3: CLI Restructuring
+- [ ] **Create**: `cli/commands/` directory structure
+- [ ] **Extract**: Each major command to separate file
+- [ ] **Share**: Common utilities in `cli/utils.py`
 
-- [ ] **Create REST Microservice for Perquire**
-    - Develop a simple FastAPI application.
-    - Expose an `/invert` endpoint: input an embedding (or text to be embedded), returns investigation result.
-    - Consider a `/probe` endpoint for asking a single question against an embedding or similar focused interactions.
-    - *Related to: docs/plan.md suggestion #5*
+### 🚩 RED FLAGS FOUND
 
-- [ ] **Flesh Out Benchmarking Scripts in `benchmarks/`**
-    - Improve `benchmarks/benchmark.py` and `benchmarks/simple_benchmark.py`.
-    - Ensure these scripts are robust and usable for the Public Benchmark Suite task (P1).
+1. **Over-abstraction**: Database provider more complex than the database itself
+2. **God objects**: Single files handling everything
+3. **Premature optimization**: Complex connection pooling for single-user tool
+4. **Layer explosion**: Multiple abstraction layers for simple operations
+5. **Enterprise anti-patterns**: Using enterprise patterns for simple tool
 
-- [ ] **Systematic Error Handling and Resilience Pass**
-    - Conduct a thorough review of the codebase to identify areas where error handling can be improved.
-    - Focus on API calls, file I/O, unexpected data formats, and external service interactions.
-    - Ensure graceful failure modes and informative error messages.
+### 🎯 SPECIFIC ANTI-PATTERNS TO REMOVE
 
-- [ ] **Determine Fate of `src/perquire/cache/` Directory**
-    - The directory `src/perquire/cache/` currently only contains `__init__.py`.
-    - Confirm if the current database-driven caching in `PerquireInvestigator` and LRU caching in providers is sufficient.
-    - If `src/perquire/cache/` is not needed for distinct functionality, remove it.
+#### Database Provider Issues:
+- [ ] Remove complex connection pooling (overkill for single-user tool)
+- [ ] Remove query builders (use SQL directly)
+- [ ] Remove result transformers (return raw results)
+- [ ] Remove caching layers (premature optimization)
+- [ ] Remove abstraction interfaces (unnecessary complexity)
 
-- [ ] **Create Public Roadmap (`ROADMAP.md`)**
-    - Develop a `ROADMAP.md` file.
-    - Outline planned features, milestones (e.g., v0.2, v0.3, v1.0), and general project direction.
-    - *Related to: docs/plan.md suggestion #10*
+#### Investigator Issues:
+- [ ] Split query processing from data analysis
+- [ ] Split result formatting from core logic
+- [ ] Remove complex state management
+- [ ] Simplify data flow
 
-## P3: Low Priority
+#### CLI Issues:
+- [ ] Remove monolithic command handler
+- [ ] Split large command functions
+- [ ] Remove excessive argument parsing complexity
 
-Nice-to-haves or more advanced features for later stages.
+### 📊 EXPECTED BENEFITS
 
-- [ ] **Add Interactive Visualizations (Plotly)**
-    - For Jupyter notebook environments, enhance or create interactive visualizations.
-    - Examples: Plot similarity scores over iterations, display cosine similarity heatmaps.
-    - *Related to: docs/plan.md suggestion #7*
+1. **60%+ code reduction** in core files
+2. **10x easier to understand** database operations
+3. **Faster development** with direct DuckDB calls
+4. **Easier testing** with focused modules
+5. **Better maintainability** with single-responsibility modules
 
-- [ ] **Review and Refine Configuration Handling**
-    - The `docs/plan.md` mentioned a potential `configs/` folder (not observed in current listings). If it exists and is problematic, address it.
-    - Generally, review how configuration is loaded and managed. Ensure defaults are sensible and override mechanisms (env vars, constructor args) are clear and well-documented.
-    - *Related to: docs/plan.md suggestion #6*
+### ⚠️ MIGRATION RISKS
 
-- [ ] **Incrementally Improve MyPy Strictness**
-    - Work towards stricter MyPy compliance.
-    - Add type stubs or refine type hints for dependencies to reduce `--ignore-missing-imports`.
-    - Resolve type redefinitions flagged by `--allow-redefinition`.
+1. **API breaking changes**: Database provider interface will change
+2. **Feature regression**: Some complex features might be simplified
+3. **Testing needed**: Extensive testing required after refactoring
 
-- [ ] **Investigate Model Drift Alerts (Advanced Feature)**
-    - Explore feasibility of a system to monitor production vectors and detect distribution drift compared to the embedding model's baseline.
-    - This is a longer-term research/advanced feature.
-    - *Related to: docs/plan.md suggestion #8*
+### 🎉 SUCCESS CRITERIA
 
-- [ ] **Review Need for Separate `BatchInvestigator` Class**
-    - `PerquireInvestigator` has an `investigate_batch` method.
-    - Evaluate if a separate `BatchInvestigator` class (mentioned in POST-V1 BACKLOG) offers significant advantages or if the existing method is sufficient.
+- [ ] Database operations under 150 lines
+- [ ] No single file over 300 lines  
+- [ ] Direct DuckDB calls instead of abstractions
+- [ ] All tests passing after refactoring
+- [ ] 50%+ reduction in total codebase size
 
 ---
-_This TODO list is a living document and will be updated as the project progresses._
+
+**PERQUIRE's main issue**: Solving simple problems with complex enterprise patterns. This tool should be simple and direct, not an enterprise framework!
