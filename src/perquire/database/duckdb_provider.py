@@ -4,6 +4,7 @@ DuckDB database provider implementation with VSS vector search.
 
 import os
 import hashlib
+import json
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Union
 from datetime import datetime
@@ -41,6 +42,12 @@ class DuckDBProvider(BaseDatabaseProvider):
         """
         super().__init__(config)
         self._connection = None
+
+    def _ensure_schema(self) -> None:
+        """Compatibility shim used in tests to create tables if needed."""
+        if not self.is_connected():
+            self.connect()
+        self.create_tables()
         
     def validate_config(self) -> None:
         """Validate DuckDB configuration."""
@@ -56,10 +63,29 @@ class DuckDBProvider(BaseDatabaseProvider):
         """Establish DuckDB connection with VSS extension."""
         try:
             self._connection = duckdb.connect(self.config.connection_string)
-            
+
             # Install and load VSS extension for vector similarity search
-            self._connection.execute("INSTALL vss;")
-            self._connection.execute("LOAD vss;")
+            try:
+                import duckdb_extension_vss
+                from pathlib import Path
+
+                ext_dir = Path(duckdb_extension_vss.__file__).with_name("extensions")
+                # Use newest packaged version if multiple are present
+                version_dirs = sorted(ext_dir.glob("v*"), reverse=True)
+                if version_dirs:
+                    ext_path = version_dirs[0] / "vss.duckdb_extension"
+                    self._connection.install_extension(str(ext_path))
+                    self._connection.load_extension("vss")
+                else:
+                    raise FileNotFoundError("vss extension package missing files")
+            except Exception:
+                try:
+                    self._connection.execute("INSTALL vss;")
+                    self._connection.execute("LOAD vss;")
+                except Exception as ext_err:
+                    logger.warning(
+                        f"VSS extension unavailable: {ext_err}. Continuing without VSS features."
+                    )
             
             # Set DuckDB configuration for optimal performance
             self._connection.execute("SET enable_progress_bar = false;")

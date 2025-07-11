@@ -305,4 +305,3 @@ def test_get_model_config_includes_interrogator_strategy(mock_llm_provider, mock
     )
     config_default = investigator_default._get_model_config()
     assert config_default["interrogator_strategy"]["name"] == "DefaultInterrogatorStrategy"
-```

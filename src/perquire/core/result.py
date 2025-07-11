@@ -22,6 +22,23 @@ class QuestionResult:
 
 
 @dataclass
+class QuestionAnswer:
+    """Backwards compatible question representation used in tests."""
+
+    question: str
+    similarity: float
+    phase: str
+    iteration: int = 0
+    timestamp: datetime = field(default_factory=datetime.now)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def similarity_score(self) -> float:
+        """Expose similarity as similarity_score for compatibility."""
+        return self.similarity
+
+
+@dataclass
 class InvestigationResult:
     """
     Contains the complete result of an embedding investigation.
@@ -42,7 +59,7 @@ class InvestigationResult:
     phase_reached: str = "exploration"  # exploration, refinement, convergence
     
     # Question history
-    question_history: List[QuestionResult] = field(default_factory=list)
+    question_history: List[QuestionAnswer] = field(default_factory=list)
     
     # Convergence metrics
     convergence_achieved: bool = False
@@ -102,12 +119,18 @@ class InvestigationResult:
             metadata=metadata or {}
         )
         self.question_history.append(result)
+
+    def add_question_answer(self, qa: QuestionAnswer) -> None:
+        """Add a QuestionAnswer object to the history (legacy support)."""
+        if "iteration" not in qa.metadata:
+            qa.metadata["iteration"] = qa.iteration
+        self.question_history.append(qa)
     
     def get_similarity_progression(self) -> List[float]:
         """Get the progression of similarity scores throughout the investigation."""
         return [q.similarity_score for q in self.question_history]
     
-    def get_best_questions(self, top_k: int = 5) -> List[QuestionResult]:
+    def get_best_questions(self, top_k: int = 5) -> List[QuestionAnswer]:
         """Get the top-k questions with highest similarity scores."""
         return sorted(self.question_history, key=lambda x: x.similarity_score, reverse=True)[:top_k]
     
@@ -156,8 +179,9 @@ class InvestigationResult:
                     "question": q.question,
                     "similarity_score": q.similarity_score,
                     "phase": q.phase,
+                    "iteration": getattr(q, "iteration", 0),
                     "timestamp": q.timestamp.isoformat(),
-                    "metadata": q.metadata
+                    "metadata": q.metadata,
                 }
                 for q in self.question_history
             ]
@@ -167,14 +191,19 @@ class InvestigationResult:
     def from_dict(cls, data: Dict[str, Any]) -> "InvestigationResult":
         """Create an InvestigationResult from a dictionary."""
         # Parse question history
-        question_history = []
+        question_history: List[QuestionAnswer] = []
         for q_data in data.get("question_history", []):
-            question_history.append(QuestionResult(
+            ts_raw = q_data.get("timestamp")
+            ts = datetime.fromisoformat(ts_raw) if isinstance(ts_raw, str) else ts_raw
+            meta_raw = q_data.get("metadata", {})
+            meta = json.loads(meta_raw) if isinstance(meta_raw, str) else meta_raw
+            question_history.append(QuestionAnswer(
                 question=q_data["question"],
-                similarity_score=q_data["similarity_score"],
+                similarity=q_data.get("similarity", q_data.get("similarity_score", 0.0)),
                 phase=q_data["phase"],
-                timestamp=datetime.fromisoformat(q_data["timestamp"]),
-                metadata=q_data.get("metadata", {})
+                iteration=q_data.get("iteration", meta.get("iteration", 0)),
+                timestamp=ts,
+                metadata=meta
             ))
         
         return cls(
@@ -182,8 +211,8 @@ class InvestigationResult:
             description=data["description"],
             final_similarity=data["final_similarity"],
             iterations=data["iterations"],
-            start_time=datetime.fromisoformat(data["start_time"]),
-            end_time=datetime.fromisoformat(data["end_time"]) if data.get("end_time") else None,
+            start_time=datetime.fromisoformat(data["start_time"]) if isinstance(data.get("start_time"), str) else data.get("start_time"),
+            end_time=datetime.fromisoformat(data["end_time"]) if isinstance(data.get("end_time"), str) else data.get("end_time"),
             phase_reached=data.get("phase_reached", "exploration"),
             question_history=question_history,
             convergence_achieved=data.get("convergence_achieved", False),
@@ -193,7 +222,7 @@ class InvestigationResult:
             questions_per_phase=data.get("questions_per_phase", {}),
             average_similarity_improvement=data.get("average_similarity_improvement"),
             strategy_name=data.get("strategy_name", "default"),
-            model_config=data.get("model_config", {})
+            model_config=json.loads(data["model_config"]) if isinstance(data.get("model_config"), str) else data.get("model_config", {})
         )
     
     def save_to_file(self, file_path: str):
