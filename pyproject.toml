@@ -20,6 +20,7 @@ dependencies = [
     "llama-index-llms-openai>=0.4.7",
     "numpy>=2.3.1",
     "pandas>=2.3.0",
+    "pydantic-ai>=0.0.14",
     "rich>=14.0.0",
     "scikit-learn>=1.7.0",
     "fastapi>=0.111.0",
