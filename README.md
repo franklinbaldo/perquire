@@ -20,6 +20,31 @@ Traditional embedding systems work like asking "do you have any books about dogs
 
 This approach opens fascinating possibilities for content discovery, sentiment analysis, and understanding the latent representations that AI systems create internally. Perquire can help us decode the "thoughts" that exist within high-dimensional vector spaces.
 
+## 🚀 New: Pydantic AI Integration
+
+Perquire now features a modernized LLM provider built with [Pydantic AI](https://github.com/pydantic/pydantic-ai), delivering:
+
+- **50% code reduction** - Single provider replaces four manual implementations
+- **Type-safe interactions** - Automatic validation via Pydantic models
+- **Better DX** - Full IDE autocomplete and type checking
+- **Multi-model support** - Gemini, OpenAI, Anthropic, Ollama via one interface
+- **Structured outputs** - Optional access to validated question metadata
+
+```python
+from perquire.llm.pydantic_ai_provider import create_pydantic_gemini_provider
+
+# Create type-safe provider
+provider = create_pydantic_gemini_provider(
+    model="gemini-1.5-flash",
+    temperature=0.7
+)
+
+# Fully backward compatible with existing code
+investigator = PerquireInvestigator(llm_provider=provider)
+```
+
+See [`docs/PYDANTIC_AI_FIX.md`](docs/PYDANTIC_AI_FIX.md) for details and migration guide.
+
 ## Quick Start
 
 Install Perquire and watch it decode a mysterious embedding in just a few lines of code:

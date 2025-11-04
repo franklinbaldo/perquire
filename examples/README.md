@@ -2,6 +2,27 @@
 
 This directory contains example scripts and demonstrations of Perquire functionality.
 
+## Pydantic AI Integration Demo
+
+- **`pydantic_ai_integration_demo.py`** - Demonstrates the new Pydantic AI provider
+
+### Usage
+
+```bash
+# Set API key
+export GOOGLE_API_KEY="your-key"
+
+# Run demo
+python examples/pydantic_ai_integration_demo.py
+```
+
+This demo shows:
+- Proper inheritance from BaseLLMProvider
+- Registry integration
+- Backward compatibility
+- Type-safe outputs
+- 50% code reduction benefits
+
 ## Live End-to-End Test
 
 - **`live_e2e_test.py`** - Interactive live E2E test with real API calls

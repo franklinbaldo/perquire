@@ -1,10 +1,29 @@
 [project]
-name = "perquire-test"
-version = "0.1.0"
-description = "Live E2E test for Perquire embedding investigation"
+name = "perquire"
+version = "0.2.0"
+description = "AI system that investigates unknown embeddings through systematic questioning"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.8"
 license = {text = "MIT"}
+keywords = ["ai", "embeddings", "llm", "investigation", "pydantic", "vector-search"]
+authors = [
+    {name = "Franklin Baldo", email = "franklinbaldo@gmail.com"}
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 dependencies = [
     "anthropic>=0.56.0",
     "click>=8.2.1",

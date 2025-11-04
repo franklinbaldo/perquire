@@ -1,8 +1,18 @@
 """
 Google Gemini provider using LlamaIndex.
+
+⚠️  DEPRECATED: This provider is deprecated in favor of PydanticAIProvider.
+
+For new code, use:
+    from perquire.llm.pydantic_ai_provider import create_pydantic_gemini_provider
+    provider = create_pydantic_gemini_provider()
+
+This provider will be removed in the next major version.
+See docs/PYDANTIC_AI_MIGRATION.md for migration guide.
 """
 
 import os
+import warnings
 from typing import Dict, Any, Optional, List
 import logging
 
@@ -18,14 +28,26 @@ logger = logging.getLogger(__name__)
 class GeminiProvider(BaseLLMProvider):
     """
     Google Gemini provider implementation using LlamaIndex.
-    
+
+    .. deprecated:: 0.2.0
+        Use :class:`~perquire.llm.pydantic_ai_provider.PydanticAIProvider` instead.
+        This class will be removed in version 1.0.0.
+
     This provider uses Google's Gemini models through LlamaIndex integration.
+
+    For new code, prefer::
+
+        from perquire.llm.pydantic_ai_provider import create_pydantic_gemini_provider
+        provider = create_pydantic_gemini_provider(model="gemini-1.5-flash")
     """
     
     def __init__(self, config: Dict[str, Any]):
         """
         Initialize Gemini provider.
-        
+
+        .. deprecated:: 0.2.0
+            Use ``create_pydantic_gemini_provider()`` instead.
+
         Args:
             config: Configuration dictionary containing:
                 - api_key: Google API key (optional, can use env var)
@@ -34,6 +56,13 @@ class GeminiProvider(BaseLLMProvider):
                 - max_tokens: Maximum tokens to generate (default: 150)
                 - timeout: Request timeout in seconds (default: 30)
         """
+        warnings.warn(
+            "GeminiProvider is deprecated and will be removed in version 1.0.0. "
+            "Use 'create_pydantic_gemini_provider()' from perquire.llm.pydantic_ai_provider instead. "
+            "See docs/PYDANTIC_AI_MIGRATION.md for migration guide.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         super().__init__(config)
         self._llm = None
         self._initialize_llm()
