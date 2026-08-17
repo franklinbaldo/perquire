@@ -8,19 +8,19 @@
         <div class="text-center mb-5">
             <h1 class="display-4">🔍 Perquire Investigation</h1>
             <p class="lead">
-                Uncover the mysteries hidden within embeddings through systematic AI questioning
+                Investigate unknown embeddings through systematic AI questioning
             </p>
         </div>
 
         <!-- Investigation Tabs -->
         <ul class="nav nav-tabs mb-4" id="investigationTabs" role="tablist">
             <li class="nav-item" role="presentation">
-                <button class="nav-link active" id="manual-tab" data-bs-toggle="tab" data-bs-target="#manual" type="button" role="tab">
+                <button class="nav-link active" id="manual-tab" data-bs-toggle="tab" data-bs-target="#manual" type="button" role="tab" aria-controls="manual" aria-selected="true">
                     <i class="bi bi-pencil"></i> Manual Input
                 </button>
             </li>
             <li class="nav-item" role="presentation">
-                <button class="nav-link" id="file-tab" data-bs-toggle="tab" data-bs-target="#file" type="button" role="tab">
+                <button class="nav-link" id="file-tab" data-bs-toggle="tab" data-bs-target="#file" type="button" role="tab" aria-controls="file" aria-selected="false">
                     <i class="bi bi-file-earmark-arrow-up"></i> File Upload
                 </button>
             </li>
@@ -28,7 +28,7 @@
 
         <div class="tab-content" id="investigationTabContent">
             <!-- Manual Input Tab -->
-            <div class="tab-pane fade show active" id="manual" role="tabpanel">
+            <div class="tab-pane fade show active" id="manual" role="tabpanel" aria-labelledby="manual-tab" tabindex="0">
                 <div class="card">
                     <div class="card-header">
                         <h5 class="mb-0">
@@ -91,7 +91,7 @@
             </div>
 
             <!-- File Upload Tab -->
-            <div class="tab-pane fade" id="file" role="tabpanel">
+            <div class="tab-pane fade" id="file" role="tabpanel" aria-labelledby="file-tab" tabindex="0">
                 <div class="card">
                     <div class="card-header">
                         <h5 class="mb-0">
@@ -168,7 +168,7 @@
         </div>
 
         <!-- Error Alert -->
-        <div id="errorAlert" class="alert alert-danger mt-4" style="display: none;">
+        <div id="errorAlert" class="alert alert-danger mt-4" role="alert" aria-live="assertive" tabindex="-1" style="display: none;">
             <h6><i class="bi bi-exclamation-triangle"></i> Investigation Failed</h6>
             <div id="errorMessage"></div>
         </div>
@@ -186,7 +186,7 @@ document.getElementById('manualForm').addEventListener('submit', async function(
     const embeddingText = document.getElementById('embeddingInput').value.trim();
     
     if (!embeddingText) {
-        alert('Please enter an embedding vector');
+        showError('Please enter an embedding vector');
         return;
     }
     
@@ -198,13 +198,14 @@ document.getElementById('manualForm').addEventListener('submit', async function(
             throw new Error('Invalid numbers in embedding');
         }
     } catch (error) {
-        alert('Invalid embedding format. Please use comma-separated numbers.');
+        showError('Invalid embedding format. Please use comma-separated numbers.');
         return;
     }
     
     // Show loading state
     btn.classList.add('loading');
     hideResults();
+    hideError();
     
     try {
         const response = await fetch('/api/investigate', {
@@ -243,13 +244,14 @@ document.getElementById('fileForm').addEventListener('submit', async function(e)
     const fileInput = document.getElementById('fileInput');
     
     if (!fileInput.files.length) {
-        alert('Please select a file');
+        showError('Please select a file');
         return;
     }
     
     // Show loading state
     btn.classList.add('loading');
     hideResults();
+    hideError();
     
     try {
         const formData = new FormData();
@@ -316,9 +318,10 @@ function showResults(result) {
 
 function showError(message) {
     hideResults();
+    const errorAlert = document.getElementById('errorAlert');
     document.getElementById('errorMessage').textContent = message;
-    document.getElementById('errorAlert').style.display = 'block';
-    document.getElementById('errorAlert').scrollIntoView({ behavior: 'smooth' });
+    errorAlert.style.display = 'block';
+    errorAlert.focus();
 }
 
 function hideResults() {
