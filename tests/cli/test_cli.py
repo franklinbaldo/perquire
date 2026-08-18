@@ -110,13 +110,13 @@ def test_cli_batch_command(
 
 def test_cli_status_command(runner: CliRunner) -> None:
     database = MagicMock()
-    database.get_statistics.return_value = {
+    database.get_investigation_stats.return_value = {
         "total_investigations": 10,
         "total_questions": 100,
-        "avg_similarity": 0.85,
-        "avg_iterations": 7.5,
+        "average_similarity": 0.85,
+        "average_iterations": 7.5,
     }
-    database.get_recent_investigations.return_value = [
+    database.list_investigations.return_value = [
         {
             "investigation_id": "id_123456789",
             "description": "A test description",
@@ -125,15 +125,13 @@ def test_cli_status_command(runner: CliRunner) -> None:
         }
     ]
 
-    with patch(
-        "perquire.database.duckdb_provider.DuckDBProvider",
-        return_value=database,
-    ):
+    with patch("perquire.cli.main._open_database", return_value=database):
         result = runner.invoke(app, ["status", "--database", "dummy.db"])
 
     assert result.exit_code == 0, result.output
-    database.get_statistics.assert_called_once()
-    database.get_recent_investigations.assert_called_once_with(limit=5)
+    database.get_investigation_stats.assert_called_once()
+    database.list_investigations.assert_called_once_with(limit=5)
+    database.disconnect.assert_called_once()
     assert "Total Investigations" in result.output
     assert "A test description" in result.output
 
@@ -162,6 +160,8 @@ def test_cli_configure_round_trip(
     config_file = tmp_path / ".perquire" / "config.json"
     config = json.loads(config_file.read_text())
     assert config["default_provider"] == "test_llm"
+    assert config["default_llm_provider"] == "test_llm"
+    assert config["default_embedding_provider"] == "test_llm"
     assert config["test_llm_api_key"] == "secret"
 
     shown = runner.invoke(app, ["configure", "--show"])
