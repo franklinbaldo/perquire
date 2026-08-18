@@ -1,17 +1,13 @@
-"""
-Core components of the Perquire library.
-"""
+"""Minimal executable core for Perquire."""
 
-from .result import InvestigationResult, QuestionResult
-from .strategy import QuestioningStrategy, InvestigationPhase
 from .investigator import PerquireInvestigator
-from .ensemble import EnsembleInvestigator
+from .result import InvestigationResult, QuestionResult
+from .strategy import InvestigationPhase, QuestioningStrategy
 
 __all__ = [
+    "PerquireInvestigator",
     "InvestigationResult",
     "QuestionResult",
     "QuestioningStrategy",
     "InvestigationPhase",
-    "PerquireInvestigator",
-    "EnsembleInvestigator",
 ]
