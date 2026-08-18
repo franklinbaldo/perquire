@@ -1,34 +1,40 @@
-"""
-Main CLI interface for Perquire using Typer.
-"""
+"""Small supported CLI for Perquire."""
 
-import typer
-from typing import Optional, List, Annotated
-from pathlib import Path
+from __future__ import annotations
+
+import csv
 import json
+from importlib.metadata import PackageNotFoundError, version as package_version
+from pathlib import Path
+from typing import Annotated, Optional
+
 import numpy as np
-
+import typer
 from rich.console import Console
-from rich.table import Table
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
 from rich.prompt import Confirm
-from rich.panel import Panel
+from rich.table import Table
 
-from ..providers import list_available_providers, ProviderNotInstalledError
+from ..providers import list_available_providers
 
 console = Console()
 app = typer.Typer(
     name="perquire",
-    help="🔍 Perquire: Reverse Embedding Search Through Systematic Questioning",
+    help="Perquire: experimental semantic inversion in a known embedding space.",
     add_completion=False,
     rich_markup_mode="rich",
 )
 
 
-def version_callback(value: bool):
-    """Show version and exit."""
+def _version() -> str:
+    try:
+        return package_version("perquire")
+    except PackageNotFoundError:
+        return "0.2.0"
+
+
+def version_callback(value: bool) -> None:
     if value:
-        console.print("[bold cyan]Perquire[/bold cyan] version [green]0.2.0[/green]")
+        console.print(f"Perquire {_version()}")
         raise typer.Exit()
 
 
@@ -36,282 +42,178 @@ def version_callback(value: bool):
 def main(
     version: Annotated[
         Optional[bool],
-        typer.Option("--version", "-v", callback=version_callback, is_eager=True, help="Show version and exit"),
+        typer.Option("--version", "-v", callback=version_callback, is_eager=True),
     ] = None,
-):
-    """
-    [bold cyan]Perquire[/bold cyan]: Investigate mysterious embeddings through systematic questioning.
-
-    A revolutionary AI system that reverses traditional embedding search.
-    """
-    pass
+) -> None:
+    """Investigate target embeddings using similarity-guided text candidates."""
 
 
 @app.command()
-def providers():
-    """
-    📋 List available LLM and embedding providers and their installation status.
-    """
-    try:
-        providers_data = list_available_providers()
-
-        console.print("\n[bold]📋 Available Providers[/bold]\n")
-
-        # Embedding providers
-        console.print("[bold blue]🔍 Embedding Providers[/bold blue]")
-        embed_table = Table(show_header=True, header_style="bold magenta")
-        embed_table.add_column("Provider", style="cyan")
-        embed_table.add_column("Status", justify="center")
-        embed_table.add_column("Install Command", style="dim")
-
-        for name, info in providers_data["embedding"].items():
-            status = "✅ Installed" if info["installed"] else "❌ Not installed"
-            install_cmd = f"uv add perquire[{info['extra']}]" if not info["installed"] else "-"
-            embed_table.add_row(name, status, install_cmd)
-
-        console.print(embed_table)
-        console.print()
-
-        # LLM providers
-        console.print("[bold blue]🤖 LLM Providers[/bold blue]")
-        llm_table = Table(show_header=True, header_style="bold magenta")
-        llm_table.add_column("Provider", style="cyan")
-        llm_table.add_column("Status", justify="center")
-        llm_table.add_column("Install Command", style="dim")
-
-        for name, info in providers_data["llm"].items():
-            status = "✅ Installed" if info["installed"] else "❌ Not installed"
-            install_cmd = f"uv add perquire[{info['extra']}]" if not info["installed"] else "-"
-            llm_table.add_row(name, status, install_cmd)
-
-        console.print(llm_table)
-
-        # Installation examples
-        console.print("\n[bold yellow]💡 Common Installation Examples:[/bold yellow]")
-        console.print("   uv add perquire[api-openai,dev]     # OpenAI + dev tools")
-        console.print("   uv add perquire[api-gemini,web]     # Gemini + web interface")
-        console.print("   uv add perquire[local-embeddings]   # Local inference (heavy!)")
-        console.print("   uv add perquire[api-openai,api-anthropic,web,dev]  # Full setup")
-
-    except Exception as e:
-        console.print(f"[red]Error listing providers: {e}[/red]")
-        raise typer.Exit(1)
+def providers() -> None:
+    """List provider integrations and whether their dependencies are installed."""
+    data = list_available_providers()
+    for kind, title in (("embedding", "Embedding Providers"), ("llm", "LLM Providers")):
+        table = Table(title=title)
+        table.add_column("Provider")
+        table.add_column("Status")
+        table.add_column("Extra")
+        for name, info in data[kind].items():
+            table.add_row(
+                name,
+                "installed" if info["installed"] else "not installed",
+                str(info.get("extra", "-")),
+            )
+        console.print(table)
 
 
 @app.command()
 def configure(
-    provider: Annotated[
-        Optional[str],
-        typer.Option("--provider", "-p", help="Set default LLM provider (gemini, openai, anthropic, ollama)"),
-    ] = None,
-    api_key: Annotated[Optional[str], typer.Option("--api-key", "-k", help="Set API key for provider")] = None,
-    database: Annotated[Optional[str], typer.Option("--database", "-d", help="Set default database path")] = None,
-    show: Annotated[bool, typer.Option("--show", help="Show current configuration")] = False,
-):
-    """
-    ⚙️  Configure Perquire settings.
-    """
-    config_file = Path.home() / '.perquire' / 'config.json'
-    config_file.parent.mkdir(exist_ok=True)
+    provider: Annotated[Optional[str], typer.Option("--provider", "-p")] = None,
+    api_key: Annotated[Optional[str], typer.Option("--api-key", "-k")] = None,
+    database: Annotated[Optional[str], typer.Option("--database", "-d")] = None,
+    show: Annotated[bool, typer.Option("--show")] = False,
+) -> None:
+    """Store small local defaults for provider selection and persistence."""
+    config_file = Path.home() / ".perquire" / "config.json"
+    config_file.parent.mkdir(parents=True, exist_ok=True)
+    config = get_global_config()
 
-    # Load existing config
-    config = {}
-    if config_file.exists():
-        with open(config_file, 'r') as f:
-            config = json.load(f)
-
-    # Show current config
     if show:
-        console.print("[bold]Current Configuration:[/bold]")
-        table = Table()
+        table = Table(title="Current Configuration")
         table.add_column("Setting")
         table.add_column("Value")
-
-        for key, value in config.items():
-            if 'key' in key.lower():
-                value = "***" if value else "[red]Not set[/red]"
-            table.add_row(key, str(value))
-
+        for key, value in sorted(config.items()):
+            rendered = "***" if "key" in key.lower() and value else str(value)
+            table.add_row(key, rendered)
         console.print(table)
         return
 
-    # Update config
     if provider:
-        config['default_provider'] = provider
-        console.print(f"✅ [green]Set default provider to:[/green] {provider}")
-
+        config["default_provider"] = provider
+        config["default_llm_provider"] = provider
+        config["default_embedding_provider"] = provider
     if api_key:
-        key_name = f"{config.get('default_provider', 'gemini')}_api_key"
-        config[key_name] = api_key
-        console.print(f"✅ [green]Set API key for:[/green] {config.get('default_provider', 'gemini')}")
-
+        selected = provider or config.get("default_provider", "gemini")
+        config[f"{selected}_api_key"] = api_key
     if database:
-        config['default_database'] = database
-        console.print(f"✅ [green]Set default database to:[/green] {database}")
+        config["default_database"] = database
 
-    # Save config
-    with open(config_file, 'w') as f:
-        json.dump(config, f, indent=2)
+    config_file.write_text(json.dumps(config, indent=2), encoding="utf-8")
+    console.print(f"Configuration saved to: {config_file}")
 
-    console.print(f"💾 [green]Configuration saved to:[/green] {config_file}")
+
+def _open_database(path: str):
+    from ..database.base import DatabaseConfig
+    from ..database.duckdb_provider import DuckDBProvider
+
+    database = DuckDBProvider(DatabaseConfig(connection_string=path))
+    database.connect()
+    return database
 
 
 @app.command()
 def status(
-    database: Annotated[str, typer.Option("--database", "-d", help="Database file path")] = "perquire.db",
-):
-    """
-    📊 Show investigation status and statistics.
-    """
+    database: Annotated[str, typer.Option("--database", "-d")] = "perquire.db",
+) -> None:
+    """Show persisted investigation statistics and recent results."""
+    db = _open_database(database)
     try:
-        from ..database.duckdb_provider import DuckDBProvider
-        from ..database.base import DatabaseConfig
+        stats = db.get_investigation_stats()
+        table = Table(title="Database Statistics")
+        table.add_column("Metric")
+        table.add_column("Value")
+        table.add_row("Total Investigations", str(stats.get("total_investigations", 0)))
+        table.add_row("Total Questions", str(stats.get("total_questions", 0)))
+        table.add_row("Average Similarity", f"{stats.get('average_similarity', 0):.3f}")
+        table.add_row("Average Iterations", f"{stats.get('average_iterations', 0):.1f}")
+        console.print(table)
 
-        # Connect to database
-        db_config = DatabaseConfig(connection_string=database)
-        db_provider = DuckDBProvider(db_config)
-
-        # Get statistics
-        stats = db_provider.get_statistics()
-
-        console.print("[bold]🔍 Perquire Investigation Status[/bold]")
-        console.print()
-
-        # Basic stats table
-        stats_table = Table(title="Database Statistics")
-        stats_table.add_column("Metric")
-        stats_table.add_column("Value")
-
-        stats_table.add_row("Total Investigations", str(stats.get('total_investigations', 0)))
-        stats_table.add_row("Total Questions", str(stats.get('total_questions', 0)))
-        stats_table.add_row("Average Similarity", f"{stats.get('avg_similarity', 0):.3f}")
-        stats_table.add_row("Average Iterations", f"{stats.get('avg_iterations', 0):.1f}")
-
-        console.print(stats_table)
-
-        # Recent investigations
-        recent = db_provider.get_recent_investigations(limit=5)
+        recent = db.list_investigations(limit=5)
         if recent:
-            console.print()
             recent_table = Table(title="Recent Investigations")
             recent_table.add_column("ID")
             recent_table.add_column("Description")
             recent_table.add_column("Similarity")
             recent_table.add_column("Strategy")
-
-            for inv in recent:
+            for item in recent:
                 recent_table.add_row(
-                    inv['investigation_id'][:8] + "...",
-                    inv['description'][:50] + "..." if len(inv['description']) > 50 else inv['description'],
-                    f"{inv['final_similarity']:.3f}",
-                    inv['strategy_name']
+                    str(item["investigation_id"]),
+                    str(item["description"]),
+                    f"{item['final_similarity']:.3f}",
+                    str(item["strategy_name"]),
                 )
-
             console.print(recent_table)
-
-    except Exception as e:
-        console.print(f"❌ [red]Failed to get status:[/red] {str(e)}")
-        raise typer.Exit(1)
+    finally:
+        db.disconnect()
 
 
 @app.command()
 def export(
-    database: Annotated[str, typer.Option("--database", "-d", help="Database file path")] = "perquire.db",
-    output: Annotated[str, typer.Option("--output", "-o", help="Output file path")] = "investigations.json",
-    format: Annotated[str, typer.Option("--format", "-f", help="Export format")] = "json",
-    limit: Annotated[Optional[int], typer.Option("--limit", "-l", help="Limit number of records")] = None,
-):
-    """
-    📤 Export investigation results.
-    """
-    if format not in ['json', 'csv', 'txt']:
-        console.print(f"[red]Invalid format: {format}. Must be json, csv, or txt[/red]")
-        raise typer.Exit(1)
+    database: Annotated[str, typer.Option("--database", "-d")] = "perquire.db",
+    output: Annotated[str, typer.Option("--output", "-o")] = "investigations.json",
+    format: Annotated[str, typer.Option("--format", "-f")] = "json",
+    limit: Annotated[Optional[int], typer.Option("--limit", "-l")] = None,
+) -> None:
+    """Export persisted investigation summaries as JSON, CSV, or text."""
+    if format not in {"json", "csv", "txt"}:
+        raise typer.BadParameter("format must be json, csv, or txt")
 
+    db = _open_database(database)
     try:
-        from ..database.duckdb_provider import DuckDBProvider
-        from ..database.base import DatabaseConfig
+        investigations = db.list_investigations(limit=limit or 100)
+    finally:
+        db.disconnect()
 
-        # Connect to database
-        db_config = DatabaseConfig(connection_string=database)
-        db_provider = DuckDBProvider(db_config)
+    output_path = Path(output)
+    if format == "json":
+        output_path.write_text(
+            json.dumps(investigations, indent=2, default=str), encoding="utf-8"
+        )
+    elif format == "csv":
+        fieldnames = list(investigations[0].keys()) if investigations else []
+        with output_path.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fieldnames)
+            if fieldnames:
+                writer.writeheader()
+                writer.writerows(investigations)
+    else:
+        with output_path.open("w", encoding="utf-8") as handle:
+            for item in investigations:
+                handle.write(f"ID: {item['investigation_id']}\n")
+                handle.write(f"Description: {item['description']}\n")
+                handle.write(f"Similarity: {item['final_similarity']}\n")
+                handle.write(f"Strategy: {item['strategy_name']}\n")
+                handle.write("-" * 50 + "\n")
 
-        # Get investigations
-        investigations = db_provider.get_all_investigations(limit=limit)
-
-        if not investigations:
-            console.print("❌ [red]No investigations found in database[/red]")
-            return
-
-        # Export based on format
-        output_path = Path(output)
-
-        if format == 'json':
-            with open(output_path, 'w') as f:
-                json.dump(investigations, f, indent=2, default=str)
-
-        elif format == 'csv':
-            import pandas as pd
-            df = pd.DataFrame(investigations)
-            df.to_csv(output_path, index=False)
-
-        elif format == 'txt':
-            with open(output_path, 'w') as f:
-                for inv in investigations:
-                    f.write(f"ID: {inv['investigation_id']}\n")
-                    f.write(f"Description: {inv['description']}\n")
-                    f.write(f"Similarity: {inv['final_similarity']}\n")
-                    f.write(f"Strategy: {inv['strategy_name']}\n")
-                    f.write("-" * 50 + "\n")
-
-        console.print(f"📤 [green]Exported {len(investigations)} investigations to:[/green] {output_path}")
-
-    except Exception as e:
-        console.print(f"❌ [red]Export failed:[/red] {str(e)}")
-        raise typer.Exit(1)
+    console.print(f"Exported {len(investigations)} investigations to {output_path}")
 
 
-# Helper functions
 def get_global_config() -> dict:
-    """Loads global configuration from ~/.perquire/config.json."""
-    config_file = Path.home() / '.perquire' / 'config.json'
-    config_data = {}
-    if config_file.exists():
-        try:
-            with open(config_file, 'r') as f:
-                config_data = json.load(f)
-        except json.JSONDecodeError:
-            console.print(f"[yellow]Warning: Could not parse config file at {config_file}[/yellow]")
-    return config_data
+    config_file = Path.home() / ".perquire" / "config.json"
+    if not config_file.exists():
+        return {}
+    try:
+        return json.loads(config_file.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
 
 
 def load_embedding_from_file(file_path: Path, format_type: str) -> np.ndarray:
-    """Load embedding from file based on format."""
-    if format_type == 'npy':
+    if format_type == "npy":
         return np.load(file_path)
-    elif format_type == 'json':
-        with open(file_path, 'r') as f:
-            data = json.load(f)
-            return np.array(data)
-    elif format_type == 'txt':
+    if format_type == "json":
+        return np.asarray(json.loads(file_path.read_text(encoding="utf-8")), dtype=float)
+    if format_type == "txt":
         return np.loadtxt(file_path)
-    else:
-        raise ValueError(f"Unsupported format: {format_type}")
+    raise ValueError(f"Unsupported format: {format_type}")
 
 
-def list_embedding_files(directory: Path, format_type: str, limit: Optional[int] = None) -> List[Path]:
-    """List embedding files in directory."""
-    patterns = {'npy': '*.npy', 'json': '*.json', 'txt': '*.txt'}
-
+def list_embedding_files(directory: Path, format_type: str, limit: Optional[int] = None) -> list[Path]:
+    patterns = {"npy": "*.npy", "json": "*.json", "txt": "*.txt"}
     if format_type not in patterns:
         raise ValueError(f"Unsupported format: {format_type}")
-
-    files = list(directory.glob(patterns[format_type]))
-
-    if limit:
-        files = files[:limit]
-
-    return files
+    files = sorted(directory.glob(patterns[format_type]))
+    return files[:limit] if limit is not None else files
 
 
 def create_investigator_from_cli_options(
@@ -319,298 +221,140 @@ def create_investigator_from_cli_options(
     embedding_provider_name: Optional[str],
     strategy_name: Optional[str],
     database_path_cli: Optional[str],
-    verbose: bool = False
+    verbose: bool = False,
 ):
-    """Create PerquireInvestigator from CLI options."""
     from ..core.investigator import PerquireInvestigator
-    from ..exceptions import ConfigurationError, InvestigationError
-    from ..llm import provider_registry as llm_registry
     from ..embeddings import embedding_registry
+    from ..llm import provider_registry as llm_registry
 
-    global_config = get_global_config()
+    config = get_global_config()
+    llm_name = llm_provider_name or config.get("default_llm_provider")
+    embedding_name = embedding_provider_name or config.get("default_embedding_provider")
 
-    final_llm_provider_name = llm_provider_name or global_config.get("default_llm_provider")
-    if not final_llm_provider_name:
-        available_llms = llm_registry.list_providers()
-        if available_llms:
-            final_llm_provider_name = available_llms[0]
-            if verbose:
-                console.print(f"[dim]Using first available LLM: [cyan]{final_llm_provider_name}[/cyan][/dim]")
-        else:
-            raise typer.Exit("No LLM provider available. Configure one or ensure API keys are set.")
+    if not llm_name:
+        available = llm_registry.list_providers()
+        if not available:
+            raise typer.BadParameter("No LLM provider is available")
+        llm_name = available[0]
+    if not embedding_name:
+        available = embedding_registry.list_providers()
+        if not available:
+            raise typer.BadParameter("No embedding provider is available")
+        embedding_name = available[0]
 
-    final_embedding_provider_name = embedding_provider_name or global_config.get("default_embedding_provider")
-    if not final_embedding_provider_name:
-        available_embeddings = embedding_registry.list_providers()
-        if available_embeddings:
-            final_embedding_provider_name = available_embeddings[0]
-            if verbose:
-                console.print(f"[dim]Using first available embedding: [cyan]{final_embedding_provider_name}[/cyan][/dim]")
-        else:
-            raise typer.Exit("No embedding provider available. Configure one or ensure API keys are set.")
-
-    db_path = database_path_cli or global_config.get('default_database')
-    db_provider_instance = None
-    if db_path:
-        try:
-            from ..database.duckdb_provider import DuckDBProvider
-            from ..database.base import DatabaseConfig
-            db_config = DatabaseConfig(connection_string=str(db_path))
-            db_provider_instance = DuckDBProvider(db_config)
-            if verbose:
-                console.print(f"[dim]Using database: {Path(db_path).resolve()}[/dim]")
-        except Exception as e:
-            console.print(f"[yellow]Warning: Could not initialize database: {e}[/yellow]")
-
-    try:
-        investigator = PerquireInvestigator(
-            llm_provider=final_llm_provider_name,
-            embedding_provider=final_embedding_provider_name,
-            database_provider=db_provider_instance,
-        )
-        if verbose:
-            console.print(f"[dim]Investigator: LLM=[cyan]{final_llm_provider_name}[/cyan], Embeddings=[cyan]{final_embedding_provider_name}[/cyan][/dim]")
-        return investigator
-    except (ConfigurationError, InvestigationError) as e:
-        console.print(f"[red]Error: {e}[/red]")
-        raise typer.Exit(1)
+    db_path = database_path_cli or config.get("default_database")
+    db = _open_database(str(db_path)) if db_path else None
+    return PerquireInvestigator(
+        llm_provider=llm_name,
+        embedding_provider=embedding_name,
+        database_provider=db,
+    )
 
 
-def display_investigation_result(result, verbose: bool = False):
-    """Display investigation result."""
-    from ..core.result import InvestigationResult
-
-    if not isinstance(result, InvestigationResult):
-        console.print(f"[yellow]Cannot display result: unexpected type {type(result)}[/yellow]")
-        return
-
-    console.print("\n[bold green]✅ Investigation Complete![/bold green]")
-    console.print(f"   [bold]Description:[/bold] {result.description}")
-    console.print(f"   [bold]Similarity:[/bold]  {result.final_similarity:.4f}")
-    console.print(f"   [bold]Iterations:[/bold]  {result.iterations}")
-    console.print(f"   [bold]Duration:[/bold]    {result.total_duration_seconds:.2f}s")
-    console.print(f"   [bold]Strategy:[/bold]    {result.strategy_name}")
-
-    if verbose and hasattr(result, 'question_history') and result.question_history:
-        console.print("\n[bold]Question History:[/bold]")
-        history_table = Table(show_header=True, header_style="bold magenta")
-        history_table.add_column("Iter.", style="dim")
-        history_table.add_column("Phase", style="cyan")
-        history_table.add_column("Question", overflow="fold")
-        history_table.add_column("Similarity", style="magenta")
-
-        for i, qr in enumerate(result.question_history):
-            history_table.add_row(str(i + 1), qr.phase, qr.question, f"{qr.similarity:.4f}")
-        console.print(history_table)
+def display_investigation_result(result, verbose: bool = False) -> None:
+    console.print("Investigation Complete")
+    console.print(f"Description: {result.description}")
+    console.print(f"Similarity: {result.final_similarity:.4f}")
+    console.print(f"Iterations: {result.iterations}")
+    if verbose and result.question_history:
+        table = Table(title="Probe History")
+        table.add_column("Step")
+        table.add_column("Phase")
+        table.add_column("Candidate")
+        table.add_column("Similarity")
+        for index, item in enumerate(result.question_history, start=1):
+            table.add_row(
+                str(index), item.phase, item.question, f"{item.similarity_score:.4f}"
+            )
+        console.print(table)
 
 
 @app.command()
 def investigate(
-    embedding_file: Annotated[Path, typer.Argument(help="Path to embedding file (.npy, .json, .txt)", exists=True)],
-    llm_provider: Annotated[Optional[str], typer.Option("--llm-provider", help="LLM provider")] = None,
-    embedding_provider: Annotated[Optional[str], typer.Option("--embedding-provider", help="Embedding provider")] = None,
-    strategy: Annotated[Optional[str], typer.Option("--strategy", help="Questioning strategy")] = None,
-    database: Annotated[Optional[str], typer.Option("--database", "-d", help="Database path")] = None,
-    file_format: Annotated[str, typer.Option("--format", "-f", help="File format")] = "npy",
-    verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Enable verbose output")] = False,
-):
-    """
-    🔎 Investigate a single embedding file to uncover what it represents.
-    """
-    if verbose:
-        console.print(f"[bold blue]🔎 Starting investigation: {embedding_file.name}[/bold blue]")
-    else:
-        console.print(f"🔎 Investigating {embedding_file.name}...")
-
-    try:
-        investigator = create_investigator_from_cli_options(
-            llm_provider, embedding_provider, strategy, database, verbose=verbose
-        )
-
-        target_embedding = load_embedding_from_file(embedding_file, file_format)
-
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=console,
-            transient=True
-        ) as pb:
-            task_id = pb.add_task("Investigating...", total=None)
-            result = investigator.investigate(target_embedding=target_embedding, verbose=verbose)
-            pb.update(task_id, completed=True, description="Investigation complete.")
-
-        display_investigation_result(result, verbose)
-
-    except Exception as e:
-        console.print(f"❌ [red]Investigation Error:[/red] {str(e)}")
-        if verbose:
-            import traceback
-            console.print(f"[dim]{traceback.format_exc()}[/dim]")
-        raise typer.Exit(1)
+    embedding_file: Annotated[Path, typer.Argument(exists=True)],
+    llm_provider: Annotated[Optional[str], typer.Option("--llm-provider")] = None,
+    embedding_provider: Annotated[Optional[str], typer.Option("--embedding-provider")] = None,
+    database: Annotated[Optional[str], typer.Option("--database", "-d")] = None,
+    file_format: Annotated[str, typer.Option("--format", "-f")] = "npy",
+    verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
+) -> None:
+    """Investigate one target embedding."""
+    investigator = create_investigator_from_cli_options(
+        llm_provider, embedding_provider, None, database, verbose
+    )
+    target = load_embedding_from_file(embedding_file, file_format)
+    result = investigator.investigate(target_embedding=target, verbose=verbose)
+    display_investigation_result(result, verbose)
 
 
 @app.command()
 def batch(
-    embeddings_dir: Annotated[Path, typer.Argument(help="Directory containing embedding files", exists=True, file_okay=False)],
-    llm_provider: Annotated[Optional[str], typer.Option("--llm-provider", help="LLM provider")] = None,
-    embedding_provider: Annotated[Optional[str], typer.Option("--embedding-provider", help="Embedding provider")] = None,
-    strategy: Annotated[Optional[str], typer.Option("--strategy", help="Questioning strategy")] = None,
-    database: Annotated[Optional[str], typer.Option("--database", "-d", help="Database path")] = None,
-    limit: Annotated[Optional[int], typer.Option("--limit", "-l", help="Limit number of files")] = None,
-    file_format: Annotated[str, typer.Option("--format", "-f", help="File format")] = "npy",
-    output_dir: Annotated[Optional[str], typer.Option("--output-dir", help="Output directory for results")] = None,
-    verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Enable verbose output")] = False,
-):
-    """
-    🚀 Investigate multiple embedding files from a directory.
-    """
-    console.print(f"[bold blue]🚀 Starting batch investigation in: {embeddings_dir}[/bold blue]")
+    directory: Annotated[Path, typer.Argument(exists=True, file_okay=False)],
+    llm_provider: Annotated[Optional[str], typer.Option("--llm-provider")] = None,
+    embedding_provider: Annotated[Optional[str], typer.Option("--embedding-provider")] = None,
+    database: Annotated[Optional[str], typer.Option("--database", "-d")] = None,
+    file_format: Annotated[str, typer.Option("--format", "-f")] = "npy",
+    limit: Annotated[Optional[int], typer.Option("--limit", "-l")] = None,
+    yes: Annotated[bool, typer.Option("--yes", "-y")] = False,
+    verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
+) -> None:
+    """Investigate every supported embedding file in a directory."""
+    files = list_embedding_files(directory, file_format, limit)
+    if not files:
+        console.print("No embedding files found")
+        return
+    if not yes and not Confirm.ask(f"Investigate {len(files)} files?"):
+        raise typer.Abort()
 
-    try:
-        investigator = create_investigator_from_cli_options(
-            llm_provider, embedding_provider, strategy, database, verbose=False
-        )
-
-        embedding_files = list_embedding_files(embeddings_dir, file_format, limit)
-        if not embedding_files:
-            console.print(f"[yellow]No {file_format} files found in {embeddings_dir}[/yellow]")
-            return
-
-        console.print(f"Found {len(embedding_files)} files")
-        if not Confirm.ask("Proceed with batch investigation?", default=True):
-            console.print("[yellow]Cancelled[/yellow]")
-            return
-
-        batch_results = []
-        output_path = Path(output_dir) if output_dir else None
-        if output_path:
-            output_path.mkdir(parents=True, exist_ok=True)
-
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TextColumn("[progress.percentage]{task.percentage:>3.0f}% ({task.completed}/{task.total})"),
-            console=console
-        ) as progress:
-            task_id = progress.add_task("Batch processing...", total=len(embedding_files))
-
-            for file_p in embedding_files:
-                progress.update(task_id, description=f"Processing: {file_p.name}")
-                try:
-                    emb = load_embedding_from_file(file_p, file_format)
-                    res = investigator.investigate(target_embedding=emb, verbose=verbose)
-                    batch_results.append((file_p, res))
-
-                    if output_path and res and hasattr(res, 'to_dict'):
-                        try:
-                            with open(output_path / f"{file_p.stem}_result.json", 'w') as f:
-                                json.dump(res.to_dict(), f, indent=2, default=str)
-                        except Exception as e:
-                            console.print(f"[red]Error saving JSON for {file_p.name}: {e}[/red]")
-
-                    if verbose and res:
-                        console.rule(f"Result for {file_p.name}")
-                        display_investigation_result(res, verbose=True)
-                        console.rule()
-
-                except Exception as e:
-                    console.print(f"[red]Failed {file_p.name}: {e}[/red]")
-                    batch_results.append((file_p, None))
-                finally:
-                    progress.update(task_id, advance=1)
-
-        # Display summary
-        from ..core.result import InvestigationResult
-
-        console.print(f"\n[bold green]📊 Batch Investigation Summary ({len(batch_results)} files)[/bold green]")
-        summary_table = Table(title="Batch Results", show_header=True, header_style="bold magenta")
-        summary_table.add_column("File", style="cyan", overflow="fold", max_width=50)
-        summary_table.add_column("Description", overflow="fold")
-        summary_table.add_column("Similarity", style="magenta", justify="right")
-        summary_table.add_column("Iterations", style="blue", justify="right")
-
-        successful = 0
-        for file_p, res in batch_results:
-            if isinstance(res, InvestigationResult):
-                summary_table.add_row(
-                    str(file_p.name),
-                    res.description,
-                    f"{res.final_similarity:.4f}",
-                    str(res.iterations)
-                )
-                successful += 1
-            else:
-                summary_table.add_row(str(file_p.name), "[red]Failed[/red]", "-", "-")
-
-        console.print(summary_table)
-        console.print(f"\nSuccessfully investigated {successful}/{len(batch_results)} embeddings")
-
-        if output_path:
-            console.print(f"Results saved in: [cyan]{output_path.resolve()}[/cyan]")
-
-    except Exception as e:
-        console.print(f"❌ [red]Batch Investigation Error:[/red] {str(e)}")
-        if verbose:
-            import traceback
-            console.print(f"[dim]{traceback.format_exc()}[/dim]")
-        raise typer.Exit(1)
-
-
-# Web UI Command
-try:
-    from ..web.main import main as web_main_runner
-
-    @app.command()
-    def serve(
-        host: Annotated[str, typer.Option("--host", help="Host to bind")] = "127.0.0.1",
-        port: Annotated[int, typer.Option("--port", help="Port to bind")] = 8000,
-        database: Annotated[str, typer.Option("--database", help="Database file path")] = "perquire.db",
-        reload: Annotated[bool, typer.Option("--reload", help="Enable auto-reload")] = False,
-    ):
-        """
-        🌐 Launch the Perquire web interface.
-        """
-        console.print(f"🚀 Launching Perquire web interface on http://{host}:{port}")
-        import sys
-        original_argv = sys.argv
-        sys.argv = ["perquire-web", "--host", host, "--port", str(port), "--database", database]
-        if reload:
-            sys.argv.append("--reload")
+    investigator = create_investigator_from_cli_options(
+        llm_provider, embedding_provider, None, database, verbose
+    )
+    rows: list[tuple[Path, object | None]] = []
+    for file_path in files:
         try:
-            web_main_runner()
-        except ImportError as e:
-            if "watchfiles" in str(e).lower() and reload:
-                console.print("[red]Error: --reload requires 'watchfiles'. Install: uv add watchfiles[/red]")
-            else:
-                console.print(f"[red]Missing dependency: {e}[/red]")
-                console.print("[yellow]Install web dependencies: uv add perquire[web][/yellow]")
-        except Exception as e:
-            console.print(f"[red]Error: {e}[/red]")
-        finally:
-            sys.argv = original_argv
+            target = load_embedding_from_file(file_path, file_format)
+            rows.append((file_path, investigator.investigate(target, verbose=verbose)))
+        except Exception as exc:  # continue batch while making the failure visible
+            console.print(f"Failed {file_path.name}: {exc}")
+            rows.append((file_path, None))
 
-except ImportError:
-    @app.command()
-    def serve():
-        """🌐 Launch the Perquire web interface (DISABLED - dependencies missing)."""
-        console.print("[yellow]Web interface not available. Install: uv add perquire[web][/yellow]")
-
-
-# Demo Command
-try:
-    from .demo import text_demo as demo_text_command
-
-    demo_app = typer.Typer(help="Commands for demonstrating Perquire's capabilities")
-    demo_app.command("text")(demo_text_command)
-    app.add_typer(demo_app, name="demo")
-
-except ImportError:
-    @app.command()
-    def demo():
-        """Access demo commands (DISABLED - components missing)."""
-        console.print("[yellow]Demo commands unavailable. Ensure all core components are installed.[/yellow]")
+    table = Table(title=f"Batch Investigation Summary ({len(rows)} files)")
+    table.add_column("File")
+    table.add_column("Description")
+    table.add_column("Similarity")
+    for file_path, result in rows:
+        if result is None:
+            table.add_row(file_path.name, "Failed", "-")
+        else:
+            table.add_row(file_path.name, result.description, f"{result.final_similarity:.4f}")
+    console.print(table)
 
 
-if __name__ == '__main__':
+@app.command()
+def serve(
+    host: Annotated[str, typer.Option("--host")] = "127.0.0.1",
+    port: Annotated[int, typer.Option("--port")] = 8000,
+    database: Annotated[str, typer.Option("--database")] = "perquire.db",
+    reload: Annotated[bool, typer.Option("--reload")] = False,
+) -> None:
+    """Launch the optional local FastAPI/Jinja interface."""
+    try:
+        from ..web.main import main as web_main
+    except ImportError as exc:
+        console.print(f"Web dependencies are not installed: {exc}")
+        raise typer.Exit(1) from exc
+
+    import sys
+
+    original = sys.argv
+    sys.argv = ["perquire-web", "--host", host, "--port", str(port), "--database", database]
+    if reload:
+        sys.argv.append("--reload")
+    try:
+        web_main()
+    finally:
+        sys.argv = original
+
+
+if __name__ == "__main__":
     app()
