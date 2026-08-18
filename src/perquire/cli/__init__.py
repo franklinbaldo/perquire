@@ -1,8 +1,5 @@
-"""
-Command Line Interface for Perquire.
-"""
+"""Command-line interface for Perquire."""
 
-# Import lean CLI by default
-from .lean_main import cli
+from .main import app
 
-__all__ = ["cli"]
+__all__ = ["app"]
