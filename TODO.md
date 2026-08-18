@@ -1,248 +1,57 @@
-# PERQUIRE TODO - Updated Priorities
+# Perquire roadmap
 
-## ✅ COMPLETED: Major Improvements
+Perquire is an experimental system for approximate semantic inversion in a known embedding space.
 
-### Pydantic AI Integration (50% Code Reduction in LLM Layer)
-- [x] Added pydantic-ai dependency
-- [x] Created Pydantic models for structured LLM outputs
-- [x] Implemented PydanticAIProvider (inherits from BaseLLMProvider)
-- [x] Fixed architectural compatibility issues
-- [x] Created integration examples and documentation
-- [x] Achieved 50% code reduction in LLM provider layer (1,108 → 492 lines)
+The project has one priority: determine whether adaptive similarity feedback helps recover a useful textual semantic preimage of a hidden target embedding better than simpler equal-budget baselines.
 
-**Impact:**
-- ✅ Type-safe LLM interactions with automatic validation
-- ✅ Single provider for Gemini, OpenAI, Anthropic, Ollama
-- ✅ Full backward compatibility with existing system
-- ✅ Registry integration and drop-in replacement capability
-- ✅ Optional structured outputs for advanced use cases
+## Current gate
 
-See: `docs/PYDANTIC_AI_FIX.md`, `docs/PYDANTIC_AI_IMPROVEMENTS.md`
+1. Keep the supported runtime and public interfaces green.
+2. Define the claim and its falsifiers precisely.
+3. Build a reproducible benchmark with hidden source text.
+4. Compare adaptive Perquire against equal-budget baselines.
+5. Change the search algorithm only after the benchmark establishes where the current method wins or loses.
 
----
+## Deliberately deferred
 
-## 🔄 IN PROGRESS: Production Readiness
+Until the benchmark produces evidence, do not spend project effort on:
 
-### Phase 1: Provider Migration
-- [ ] Update PerquireInvestigator to support Pydantic AI providers
-- [ ] Add provider selection examples to documentation
-- [ ] Update CLI to allow Pydantic AI provider selection
-- [ ] Add observability with Pydantic Logfire (optional)
+- new web UI features;
+- provider proliferation or migrations that are not needed by the benchmark;
+- observability dashboards;
+- database/VSS refactors;
+- line-count reduction projects;
+- new strategy registries or plugin abstractions;
+- claims of generic embedding decoding, interpretability, or recovery of original text.
 
-### Phase 2: Testing & Validation
-- [ ] Create comprehensive test suite for PydanticAIProvider
-- [ ] Add integration tests with PerquireInvestigator
-- [ ] Performance benchmarks: Pydantic AI vs manual providers
-- [ ] Validate all investigation phases work correctly
+Existing working infrastructure may remain. Deferred means "not the current bottleneck", not "must be deleted".
 
-### Phase 3: Deprecation Path
-- [ ] Mark old providers as deprecated (GeminiProvider, OpenAIProvider, etc.)
-- [ ] Add deprecation warnings with migration instructions
-- [ ] Update all examples to use PydanticAIProvider
-- [ ] Create migration guide for existing users
+## Minimal PR stack
 
----
+### 1. Truthful, executable base
 
-## 📋 BACKLOG: Future Improvements
+The existing project-surface PR owns runtime/CLI repair, supported Python CI, and truthful public documentation.
 
-### Code Quality (Realistic Goals)
+Exit gate: supported-runtime tests pass and the repository describes what the code actually does.
 
-#### Database Provider Refinement
-- [ ] **Consolidate cache methods** in `duckdb_provider.py`
-  - Current: 8 similar cache methods (~100 lines)
-  - Target: 2 generic cache methods (~40 lines)
-  - Savings: ~60 lines
-  - **Note:** Keep VSS integration, investigation tracking, and fallbacks
+### 2. Research contract + OKF memory
 
-- [ ] **Extract VSS logic** to separate module
-  - Move VSS-specific code to `database/vss.py`
-  - Improves testability and separation of concerns
-  - Target: ~100 lines saved
+Define semantic inversion, assumptions, metrics, baselines, and falsification criteria. Keep claims and experiment protocols as a small OKF bundle validated by `okf-parser`.
 
-**Realistic Target:** 858 lines → 700 lines (18% reduction, not 85%)
+Exit gate: another agent can reconstruct what is being tested without reading implementation history.
 
-#### Investigator Decomposition (Optional)
-- [ ] **Extract similarity calculation** to separate module
-  - Move `_calculate_question_similarity` to `similarity_calculator.py`
-  - Improves testability
-  - Target: ~80 lines extracted
+### 3. Benchmark + equal-budget baselines
 
-- [ ] **Extract caching logic** to separate module
-  - Move cache key generation and checking to `cache_manager.py`
-  - Reduces repetition across methods
-  - Target: ~60 lines saved
+Create the hidden-text benchmark and run current adaptive Perquire against independent best-of-N sampling and a simple mutation hill-climber under the same evaluation budget.
 
-**Realistic Target:** 712 lines → 600 lines (16% reduction, not 50%)
+Exit gate: machine-readable results show whether adaptive feedback adds value and where.
 
-#### CLI Improvements (Low Priority)
-- [ ] Extract helper functions to `cli/utils.py`
-  - Target: ~80 lines extracted
-  - Improves reusability
+### 4. Contrastive probing, conditionally
 
-**Realistic Target:** 675 lines → 600 lines (11% reduction)
+Only if the benchmark identifies signal worth improving, replace the misleading yes/no-question interpretation with explicit semantic probes and evaluate contrastive probe sets against the frozen benchmark.
 
-### Features
+Exit gate: contrastive probing beats or characterizes the current method on predeclared metrics. If it does not, keep the simpler method.
 
-#### Observability
-- [ ] Integrate Pydantic Logfire for LLM call tracking
-- [ ] Add cost tracking per investigation
-- [ ] Performance monitoring dashboard
-- [ ] Error rate tracking by provider
+## Success is allowed to be negative
 
-#### Web UI Enhancements
-- [ ] Update web UI to use PydanticAIProvider
-- [ ] Add provider selection in UI
-- [ ] Show structured outputs (question metadata) in UI
-- [ ] Add real-time investigation progress tracking
-
-#### Investigation Quality
-- [ ] Implement adaptive questioning based on similarity trends
-- [ ] Add investigation replay/analysis tools
-- [ ] Create investigation templates for common use cases
-- [ ] Add multi-embedding batch investigation
-
----
-
-## ❌ NOT DOING: Rejected Ideas
-
-### From Original TODO.md
-
-#### "Reduce database provider to 100-150 lines"
-**Rejected:** The database provider does legitimate work:
-- VSS (HNSW) vector search integration (150+ lines)
-- Investigation tracking with complex queries (300+ lines)
-- Multiple caching layers with TTL (90+ lines)
-- Deduplication and hash-based lookups (50+ lines)
-
-Reducing to 100 lines would require **removing features**, not simplifying code.
-
-**Alternative:** Focused improvements (cache consolidation, VSS extraction) for 18% reduction.
-
-#### "Split CLI into separate command modules"
-**Rejected:** The 675-line CLI is normal for a feature-rich tool with 8+ commands.
-
-**Alternative:** Extract helpers to utils (11% reduction) if needed.
-
-#### "Remove abstractions for 'simple DuckDB calls'"
-**Rejected:** The abstractions serve real purposes:
-- Provider pattern enables switching databases
-- VSS integration requires specialized handling
-- Investigation tracking needs domain-specific queries
-- Caching requires consistent key generation
-
-**Alternative:** Keep architecture, improve specific areas.
-
----
-
-## 🎯 REALISTIC EXPECTATIONS
-
-### What We've Achieved
-- ✅ **50% code reduction** in LLM layer (meaningful simplification)
-- ✅ **Type safety** throughout LLM interactions
-- ✅ **Automatic validation** on all outputs
-- ✅ **Better architecture** with proper inheritance
-- ✅ **Backward compatibility** maintained
-
-### What's Reasonable
-- 🎯 **18% reduction** in database provider (via consolidation)
-- 🎯 **16% reduction** in investigator (via extraction)
-- 🎯 **11% reduction** in CLI (via utils extraction)
-- 🎯 **Net: ~15-20%** total codebase reduction
-
-### What's Unrealistic
-- ❌ Reducing database provider by 85%
-- ❌ Turning everything into "simple calls"
-- ❌ Removing enterprise patterns that serve purposes
-- ❌ Achieving 60% total codebase reduction
-
----
-
-## 📊 COMPLEXITY ASSESSMENT (Updated)
-
-### Current State (Post-Pydantic AI)
-```
-src/perquire/llm/
-├── pydantic_ai_provider.py  (492 lines) ✅ NEW
-├── models.py                (200 lines) ✅ NEW
-├── gemini_provider.py       (277 lines) ⚠️ DEPRECATED
-├── openai_provider.py       (~250 lines) ⚠️ DEPRECATED
-├── anthropic_provider.py    (~250 lines) ⚠️ DEPRECATED
-└── ollama_provider.py       (~200 lines) ⚠️ DEPRECATED
-
-Active code: 692 lines (Pydantic AI)
-Legacy code: 977 lines (will be removed next major version)
-```
-
-### Recommended Improvements
-```
-src/perquire/database/
-├── duckdb_provider.py       (858 → 700 lines) -18%
-├── vss.py                   (NEW: extracted VSS logic)
-
-src/perquire/core/
-├── investigator.py          (712 → 600 lines) -16%
-├── similarity_calculator.py (NEW: extracted logic)
-├── cache_manager.py         (NEW: extracted logic)
-
-src/perquire/cli/
-├── main.py                  (675 → 600 lines) -11%
-├── utils.py                 (NEW: extracted helpers)
-```
-
----
-
-## 🚀 NEXT SPRINT PRIORITIES
-
-### Sprint 1: Production Readiness (Current)
-1. [ ] Update investigator to use PydanticAIProvider
-2. [ ] Add comprehensive tests
-3. [ ] Performance benchmarks
-4. [ ] Update CLI for provider selection
-
-### Sprint 2: Documentation & Migration
-1. [ ] Update README with Pydantic AI quickstart
-2. [ ] Create migration guide for users
-3. [ ] Add deprecation warnings to old providers
-4. [ ] Update all examples
-
-### Sprint 3: Quality Improvements (Optional)
-1. [ ] Consolidate database cache methods
-2. [ ] Extract VSS logic to separate module
-3. [ ] Extract investigator modules if needed
-4. [ ] Add Pydantic Logfire observability
-
----
-
-## 📖 SUCCESS METRICS
-
-### Code Quality
-- ✅ 50% reduction in LLM provider code (achieved)
-- 🎯 15-20% total codebase reduction (realistic)
-- ✅ 100% type safety in LLM layer (achieved)
-- ✅ Automatic validation (achieved)
-
-### Maintainability
-- ✅ Single provider for all models (achieved)
-- ✅ Proper architectural patterns (achieved)
-- 🎯 Improved testability (in progress)
-- 🎯 Better separation of concerns (planned)
-
-### Developer Experience
-- ✅ Better IDE support with type hints (achieved)
-- ✅ Easier testing with validated models (achieved)
-- 🎯 Simpler provider switching (in progress)
-- 🎯 Built-in observability (planned)
-
----
-
-## 🎉 CONCLUSION
-
-The Pydantic AI integration represents **meaningful simplification**:
-- Removed 50% of provider code
-- Added type safety and validation
-- Maintained all features
-- Improved architecture
-
-The original TODO.md was **too aggressive** in its simplification goals. This updated TODO focuses on **realistic, value-adding improvements** rather than arbitrary line count reductions.
-
-**PERQUIRE is well-architected for its scope.** Focus on incremental improvements, not wholesale simplification.
+A benchmark showing that best-of-N or a trivial hill-climber matches Perquire is a successful experiment. It falsifies the need for the current adaptive machinery and tells us how to simplify the project.
