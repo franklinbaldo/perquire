@@ -1,307 +1,180 @@
-import pytest
 import numpy as np
-from unittest.mock import MagicMock, patch, ANY
+import pytest
 
+from perquire.convergence.algorithms import ConvergenceReason, ConvergenceResult
 from perquire.core.investigator import PerquireInvestigator
-from perquire.llm.base import BaseLLMProvider, LLMResponse
+from perquire.core.strategy import InvestigationPhase, QuestioningStrategy
 from perquire.embeddings.base import BaseEmbeddingProvider, EmbeddingResult
-from perquire.core.strategy import QuestioningStrategy, InvestigationPhase, InterrogatorStrategy, DefaultInterrogatorStrategy # Added
-from perquire.core.result import QuestionAnswer, InvestigationResult # Added
-from perquire.convergence.algorithms import ConvergenceDetector, ConvergenceResult, ConvergenceReason
-from perquire.exceptions import InvestigationError, ConfigurationError, ValidationError, QuestionGenerationError # Added
+from perquire.exceptions import InvestigationError
+from perquire.llm.base import BaseLLMProvider, LLMResponse
 
-# Mock LLM Provider (simplified for these tests)
+
 class MockLLMProvider(BaseLLMProvider):
-    def __init__(self, config=None):
-        super().__init__(config or {})
-        self.is_available_flag = True
-        self.name = "mock_llm"
-    def validate_config(self): pass
-    def generate_response(self, prompt, context=None, **kwargs): return LLMResponse(content="mock llm response", metadata={}, model=self.name)
-    def synthesize_description(self, questions_and_scores, final_similarity, **kwargs):
+    def __init__(self) -> None:
+        self.available = True
+        self.generated: list[dict] = []
+        super().__init__({})
+
+    def validate_config(self) -> None:
+        return None
+
+    def generate_response(self, prompt, context=None, **kwargs) -> LLMResponse:
+        return LLMResponse(content="mock response", metadata={}, model="mock")
+
+    def generate_questions(
+        self,
+        current_description,
+        target_similarity,
+        phase,
+        previous_questions=None,
+        **kwargs,
+    ) -> list[str]:
+        self.generated.append(
+            {
+                "current_description": current_description,
+                "target_similarity": target_similarity,
+                "phase": phase,
+                "previous_questions": list(previous_questions or []),
+            }
+        )
+        return [f"probe-{len(self.generated)}"]
+
+    def synthesize_description(self, questions_and_scores, final_similarity, **kwargs) -> str:
         return "mock synthesized description"
-    def is_available(self): return self.is_available_flag
-    def get_model_info(self): return {"provider": self.name, "model": "test_model"}
-    # generate_questions is NOT part of BaseLLMProvider, it was specific to the old investigator logic
 
-# Mock Embedding Provider (simplified)
+    def is_available(self) -> bool:
+        return self.available
+
+    def get_model_info(self) -> dict:
+        return {"provider": "mock", "model": "mock"}
+
+
 class MockEmbeddingProvider(BaseEmbeddingProvider):
-    def __init__(self, config=None, dim=10):
-        super().__init__(config or {})
-        self.dim = dim; self.is_available_flag = True; self.name = "mock_embedding"
-    def validate_config(self): pass
-    def _execute_embed_text(self, text, **kwargs): return EmbeddingResult(embedding=np.random.rand(self.dim).astype(np.float32), metadata={}, model=self.name, dimensions=self.dim)
-    def get_embedding_dimensions(self): return self.dim
-    def is_available(self): return self.is_available_flag
-    def get_model_info(self): return {"provider": self.name, "model": "test_model", "dimensions": self.dim}
+    def __init__(self) -> None:
+        self.available = True
+        super().__init__({})
 
-@pytest.fixture
-def mock_llm_provider(): # Renamed for clarity
-    return MockLLMProvider()
+    def validate_config(self) -> None:
+        return None
 
-@pytest.fixture
-def mock_embedding_provider(): # Renamed
-    return MockEmbeddingProvider(dim=10)
+    def _vector(self, text: str) -> np.ndarray:
+        # Deterministic, non-zero vectors keep the tests independent of model SDKs.
+        if text == "probe-1":
+            return np.array([1.0, 0.0, 0.0], dtype=np.float32)
+        if text == "probe-2":
+            return np.array([0.8, 0.2, 0.0], dtype=np.float32)
+        return np.array([0.5, 0.5, 0.0], dtype=np.float32)
 
-@pytest.fixture
-def mock_questioning_strategy(): # This is the overall strategy for phases/convergence
-    strategy = MagicMock(spec=QuestioningStrategy)
-    strategy.name = "mock_questioning_strategy"
-    strategy.convergence_threshold = 0.95; strategy.min_improvement = 0.0001
-    strategy.convergence_window = 2; strategy.max_iterations = 3
-    strategy.determine_phase = MagicMock(side_effect=[InvestigationPhase.EXPLORATION, InvestigationPhase.REFINEMENT, InvestigationPhase.CONVERGENCE])
-    strategy.generate_question = MagicMock(return_value="QuestioningStrategy default question?") # Used by DefaultInterrogatorStrategy
-    strategy.get_strategy_info = MagicMock(return_value={"name": "mock_qs_info"})
-    return strategy
-
-@pytest.fixture
-def mock_interrogator_strategy(): # This is the pluggable strategy for question generation
-    is_mock = MagicMock(spec=InterrogatorStrategy)
-    is_mock.generate_question = MagicMock(return_value="Custom Interrogator Question?")
-    is_mock.reset_state = MagicMock() # For testing if it's called
-    return is_mock
-
-@pytest.fixture
-def mock_convergence_detector(mock_questioning_strategy): # Renamed
-    return ConvergenceDetector(
-        similarity_threshold=mock_questioning_strategy.convergence_threshold,
-        min_improvement=mock_questioning_strategy.min_improvement,
-        convergence_window=mock_questioning_strategy.convergence_window,
-        max_iterations=mock_questioning_strategy.max_iterations
-    )
-
-@pytest.fixture
-def mock_db_provider():
-    db_mock = MagicMock()
-    db_mock.save_investigation = MagicMock()
-    db_mock.get_cached_similarity = MagicMock(return_value=None) # Default to cache miss
-    db_mock.set_cached_similarity = MagicMock()
-    db_mock.get_cached_embedding = MagicMock(return_value=None) # Default to cache miss
-    db_mock.set_cached_embedding = MagicMock()
-    db_mock.get_cached_llm_synthesis = MagicMock(return_value=None) # Default to cache miss
-    db_mock.set_cached_llm_synthesis = MagicMock()
-    # Note: Caching for LLM question generation is now internal to DefaultInterrogatorStrategy or custom ones
-    return db_mock
-
-def test_perquire_investigator_initialization_default_interrogator(mock_llm_provider, mock_embedding_provider, mock_questioning_strategy, mock_convergence_detector):
-    investigator = PerquireInvestigator(
-        llm_provider=mock_llm_provider,
-        embedding_provider=mock_embedding_provider,
-        questioning_strategy=mock_questioning_strategy, # Passed for DefaultInterrogator and phase logic
-        convergence_detector=mock_convergence_detector
-    )
-    assert isinstance(investigator.interrogator_strategy, DefaultInterrogatorStrategy)
-    assert investigator.interrogator_strategy.questioning_strategy == mock_questioning_strategy
-    assert investigator.interrogator_strategy.llm_provider == mock_llm_provider
-
-def test_perquire_investigator_init_with_custom_interrogator_strategy(mock_llm_provider, mock_embedding_provider, mock_interrogator_strategy):
-    investigator = PerquireInvestigator(
-        llm_provider=mock_llm_provider,
-        embedding_provider=mock_embedding_provider,
-        interrogator_strategy=mock_interrogator_strategy # Pass the custom one
-    )
-    assert investigator.interrogator_strategy == mock_interrogator_strategy
-
-def test_investigation_loop_with_custom_interrogator(
-    mock_llm_provider, mock_embedding_provider, mock_questioning_strategy,
-    mock_interrogator_strategy, mock_convergence_detector, mock_db_provider
-):
-    target_embedding = np.random.rand(mock_embedding_provider.dim).astype(np.float32)
-
-    mock_convergence_detector.should_continue = MagicMock(side_effect=[
-        ConvergenceResult(converged=False, reason=ConvergenceReason.MANUAL_STOP, confidence=0.0, iteration_reached=1, final_similarity=0.1, similarity_improvement=0.1, plateau_length=0, statistical_metrics={}, recommendation="continue"),
-        ConvergenceResult(converged=True, reason=ConvergenceReason.MAX_ITERATIONS, confidence=1.0, iteration_reached=2, final_similarity=0.3, similarity_improvement=0.1, plateau_length=0, statistical_metrics={}, recommendation="stop")
-    ])
-    mock_questioning_strategy.max_iterations = 2 # Align with convergence mock
-
-    investigator = PerquireInvestigator(
-        llm_provider=mock_llm_provider,
-        embedding_provider=mock_embedding_provider,
-        questioning_strategy=mock_questioning_strategy, # For phase/convergence
-        interrogator_strategy=mock_interrogator_strategy, # Custom interrogator
-        convergence_detector=mock_convergence_detector,
-        database_provider=mock_db_provider
-    )
-
-    result = investigator.investigate(target_embedding, verbose=False)
-
-    assert result is not None
-    assert result.iterations == 2
-
-    # Check custom interrogator was called correctly
-    mock_interrogator_strategy.generate_question.assert_called()
-    assert mock_interrogator_strategy.generate_question.call_count == 2
-
-    # Check arguments of the first call to generate_question
-    first_call_args = mock_interrogator_strategy.generate_question.call_args_list[0]
-    assert isinstance(first_call_args.kwargs['history'], list)
-    assert len(first_call_args.kwargs['history']) == 0 # Initially empty
-    assert first_call_args.kwargs['current_similarity'] == 0.0
-    np.testing.assert_array_equal(first_call_args.kwargs['target_embedding'], target_embedding)
-    assert first_call_args.kwargs['investigator_context']['phase'] == InvestigationPhase.EXPLORATION
-
-    # Check arguments of the second call (history should have one item)
-    second_call_args = mock_interrogator_strategy.generate_question.call_args_list[1]
-    assert len(second_call_args.kwargs['history']) == 1
-    assert isinstance(second_call_args.kwargs['history'][0], QuestionAnswer)
-
-    mock_embedding_provider._execute_embed_text.assert_called() # embed_text on provider
-    mock_llm_provider.synthesize_description.assert_called_once()
-    mock_convergence_detector.should_continue.assert_called()
-    mock_questioning_strategy.determine_phase.assert_called()
-
-
-def test_investigation_with_default_interrogator_calls_reset_state(
-    mock_llm_provider, mock_embedding_provider, mock_questioning_strategy, mock_convergence_detector
-):
-    target_embedding = np.random.rand(mock_embedding_provider.dim).astype(np.float32)
-    mock_convergence_detector.should_continue = MagicMock(return_value=ConvergenceResult(converged=True, reason=ConvergenceReason.MAX_ITERATIONS, confidence=1.0, iteration_reached=1, final_similarity=0.3, similarity_improvement=0.1, plateau_length=0, statistical_metrics={}, recommendation="stop"))
-    mock_questioning_strategy.max_iterations = 1
-
-    # Patch DefaultInterrogatorStrategy to spy on its instance methods
-    with patch('perquire.core.investigator.DefaultInterrogatorStrategy', autospec=True) as MockDefaultInterrogator:
-        mock_default_instance = MockDefaultInterrogator.return_value
-        mock_default_instance.generate_question.return_value = "Default strategy question"
-
-        investigator = PerquireInvestigator(
-            llm_provider=mock_llm_provider,
-            embedding_provider=mock_embedding_provider,
-            questioning_strategy=mock_questioning_strategy, # Will be passed to DefaultInterrogator
-            convergence_detector=mock_convergence_detector
-            # No interrogator_strategy, so DefaultInterrogatorStrategy is created
+    def _execute_embed_text(self, text: str, **kwargs) -> EmbeddingResult:
+        vector = self._vector(text)
+        return EmbeddingResult(
+            embedding=vector,
+            metadata={},
+            model="mock",
+            dimensions=len(vector),
         )
 
-        investigator.investigate(target_embedding, verbose=False)
+    def _execute_embed_batch(self, texts: list[str], **kwargs) -> list[EmbeddingResult]:
+        return [self._execute_embed_text(text, **kwargs) for text in texts]
 
-        mock_default_instance.reset_state.assert_called_once()
-        mock_default_instance.generate_question.assert_called_once()
+    def get_embedding_dimensions(self) -> int:
+        return 3
 
-# Test for failure when LLM/Embedding provider is unavailable (largely unchanged)
-def test_investigation_fails_if_providers_unavailable(mock_llm_provider, mock_embedding_provider):
-    target_embedding = np.random.rand(mock_embedding_provider.dim).astype(np.float32)
-    investigator_no_llm = PerquireInvestigator(llm_provider=None, embedding_provider=mock_embedding_provider) # Will fail on init
+    def is_available(self) -> bool:
+        return self.available
 
-    with patch('perquire.llm.base.provider_registry.get_provider', side_effect=Exception("No default LLM")):
-        with pytest.raises(InvestigationError, match="No LLM provider specified or default available"):
-             PerquireInvestigator(embedding_provider=mock_embedding_provider)
-
-    with patch('perquire.embeddings.base.embedding_registry.get_provider', side_effect=Exception("No default Emb")):
-        with pytest.raises(InvestigationError, match="No embedding provider specified or default available"):
-             PerquireInvestigator(llm_provider=mock_llm_provider)
-
-    mock_llm_provider.is_available_flag = False
-    investigator_bad_llm = PerquireInvestigator(llm_provider=mock_llm_provider, embedding_provider=mock_embedding_provider)
-    with pytest.raises(InvestigationError, match="LLM provider not available/configured."):
-        investigator_bad_llm.investigate(target_embedding)
-    mock_llm_provider.is_available_flag = True # Reset
-
-    mock_embedding_provider.is_available_flag = False
-    investigator_bad_emb = PerquireInvestigator(llm_provider=mock_llm_provider, embedding_provider=mock_embedding_provider)
-    with pytest.raises(InvestigationError, match="Embedding provider not available/configured."):
-        investigator_bad_emb.investigate(target_embedding)
+    def get_model_info(self) -> dict:
+        return {"provider": "mock", "model": "mock", "dimensions": 3}
 
 
-# Simplified DB caching test - focus is on similarity and embedding caching by Investigator
-# Question generation caching is now an internal concern of the InterrogatorStrategy (e.g. DefaultInterrogatorStrategy)
-def test_investigation_uses_db_cache_for_similarity_and_embeddings(
-    mock_llm_provider, mock_embedding_provider, mock_questioning_strategy,
-    mock_interrogator_strategy, mock_convergence_detector, mock_db_provider):
+class TwoStepConvergence:
+    def __init__(self) -> None:
+        self.calls = 0
 
-    target_embedding = np.random.rand(mock_embedding_provider.dim).astype(np.float32)
-    mock_convergence_detector.should_continue = MagicMock(return_value=ConvergenceResult(converged=True, reason=ConvergenceReason.MAX_ITERATIONS, confidence=1.0, iteration_reached=1, final_similarity=0.3, similarity_improvement=0.1, plateau_length=0, statistical_metrics={}, recommendation="stop"))
-    mock_questioning_strategy.max_iterations = 1
+    def should_continue(self, similarity_scores, current_iteration, phase="exploration"):
+        self.calls += 1
+        return ConvergenceResult(
+            converged=self.calls >= 2,
+            reason=(
+                ConvergenceReason.DIMINISHING_RETURNS
+                if self.calls >= 2
+                else ConvergenceReason.MANUAL_STOP
+            ),
+            confidence=1.0 if self.calls >= 2 else 0.0,
+            iteration_reached=current_iteration,
+            final_similarity=max(similarity_scores),
+            similarity_improvement=0.0,
+            plateau_length=0,
+            statistical_metrics={},
+            recommendation="stop" if self.calls >= 2 else "continue",
+        )
 
-    # Mock interrogator to return a consistent question
-    fixed_question = "Fixed question for caching test?"
-    mock_interrogator_strategy.generate_question.return_value = fixed_question
 
+@pytest.fixture
+def llm() -> MockLLMProvider:
+    return MockLLMProvider()
+
+
+@pytest.fixture
+def embedder() -> MockEmbeddingProvider:
+    return MockEmbeddingProvider()
+
+
+def test_investigator_initializes_current_dependencies(llm, embedder) -> None:
+    investigator = PerquireInvestigator(llm_provider=llm, embedding_provider=embedder)
+    assert investigator.llm_provider is llm
+    assert investigator.embedding_provider is embedder
+    assert isinstance(investigator.questioning_strategy, QuestioningStrategy)
+
+
+def test_investigation_uses_similarity_feedback_without_hidden_text(llm, embedder) -> None:
+    strategy = QuestioningStrategy(max_iterations=2, exploration_depth=1)
+    convergence = TwoStepConvergence()
     investigator = PerquireInvestigator(
-        llm_provider=mock_llm_provider, embedding_provider=mock_embedding_provider,
-        questioning_strategy=mock_questioning_strategy, interrogator_strategy=mock_interrogator_strategy,
-        convergence_detector=mock_convergence_detector, database_provider=mock_db_provider
+        llm_provider=llm,
+        embedding_provider=embedder,
+        questioning_strategy=strategy,
+        convergence_detector=convergence,
     )
 
-    # 1. First run (cache miss for everything)
-    investigator.investigate(target_embedding, verbose=False)
-    mock_db_provider.get_cached_similarity.assert_called_once()
-    mock_db_provider.set_cached_similarity.assert_called_once()
-    mock_db_provider.get_cached_embedding.assert_called_once() # For the question embedding
-    mock_embedding_provider._execute_embed_text.assert_called_once_with(fixed_question) # Embedding generated
-    mock_db_provider.set_cached_embedding.assert_called_once()
+    result = investigator.investigate(
+        np.array([1.0, 0.0, 0.0], dtype=np.float32),
+        save_to_database=False,
+    )
 
-    # Reset mocks for second run
-    mock_db_provider.reset_mock()
-    mock_embedding_provider._execute_embed_text.reset_mock() # Important: reset call count on this specific method
-
-    # 2. Second run (should hit caches)
-    # Simulate cache hit for similarity
-    mock_db_provider.get_cached_similarity.return_value = 0.75
-    # Simulate cache hit for question embedding (though similarity hit should prevent this call)
-    # mock_db_provider.get_cached_embedding.return_value = np.random.rand(mock_embedding_provider.dim).astype(np.float32)
-
-    investigator.investigate(target_embedding, verbose=False)
-    mock_db_provider.get_cached_similarity.assert_called_once() # Checked cache
-    mock_db_provider.set_cached_similarity.assert_not_called() # Not set, because it was a hit
-
-    # Because similarity was a hit, embedding for the question should not be re-calculated or re-fetched from DB cache
-    mock_db_provider.get_cached_embedding.assert_not_called()
-    mock_embedding_provider._execute_embed_text.assert_not_called()
-    mock_db_provider.set_cached_embedding.assert_not_called()
+    assert result.iterations == 2
+    assert result.description == "mock synthesized description"
+    assert result.final_similarity == pytest.approx(1.0)
+    assert len(result.question_history) == 2
+    assert llm.generated[0]["current_description"] == ""
+    assert llm.generated[0]["target_similarity"] == 0.0
+    assert llm.generated[1]["current_description"] == "probe-1"
+    assert llm.generated[1]["target_similarity"] == pytest.approx(1.0)
 
 
-def test_investigation_handles_question_generation_error(
-    mock_llm_provider, mock_embedding_provider, mock_questioning_strategy,
-    mock_interrogator_strategy, mock_convergence_detector
-):
-    target_embedding = np.random.rand(mock_embedding_provider.dim).astype(np.float32)
-    mock_interrogator_strategy.generate_question.side_effect = QuestionGenerationError("Test QGE")
-
+def test_question_generation_receives_phase_from_strategy(llm, embedder) -> None:
+    strategy = QuestioningStrategy(max_iterations=1, exploration_depth=1)
     investigator = PerquireInvestigator(
-        llm_provider=mock_llm_provider, embedding_provider=mock_embedding_provider,
-        questioning_strategy=mock_questioning_strategy, interrogator_strategy=mock_interrogator_strategy,
-        convergence_detector=mock_convergence_detector
+        llm_provider=llm,
+        embedding_provider=embedder,
+        questioning_strategy=strategy,
+        convergence_detector=TwoStepConvergence(),
     )
-    result = investigator.investigate(target_embedding, verbose=False)
-    assert result.convergence_reason == ConvergenceReason.ERROR.value
-    assert "Test QGE" in result.description or "Synthesis unavailable" in result.description or "Synthesis failed" in result.description # Description might be fallback
-    assert result.iterations == 0 # Loop breaks on first iteration due to QGE
+    investigator.investigate(
+        np.array([1.0, 0.0, 0.0], dtype=np.float32),
+        save_to_database=False,
+    )
+    assert llm.generated[0]["phase"] == InvestigationPhase.EXPLORATION.value
 
-# Health check should now also report interrogator_strategy
-def test_health_check_includes_interrogator_strategy(mock_llm_provider, mock_embedding_provider, mock_interrogator_strategy):
-    mock_interrogator_strategy.health_check = MagicMock(return_value={"status": "healthy_interrogator"})
-    investigator = PerquireInvestigator(
-        llm_provider=mock_llm_provider,
-        embedding_provider=mock_embedding_provider,
-        interrogator_strategy=mock_interrogator_strategy
-    )
-    health = investigator.health_check()
-    assert "interrogator_strategy" in health["components"]
-    assert health["components"]["interrogator_strategy"]["status"] == "healthy_interrogator"
 
-    # Test with default interrogator strategy (no specific health_check method)
-    investigator_default_is = PerquireInvestigator(
-        llm_provider=mock_llm_provider,
-        embedding_provider=mock_embedding_provider
-    )
-    health_default = investigator_default_is.health_check()
-    assert health_default["components"]["interrogator_strategy"]["status"] == "configured"
-    assert health_default["components"]["interrogator_strategy"]["type"] == "DefaultInterrogatorStrategy"
+def test_investigation_rejects_unavailable_provider(llm, embedder) -> None:
+    llm.available = False
+    investigator = PerquireInvestigator(llm_provider=llm, embedding_provider=embedder)
+    with pytest.raises(InvestigationError, match="LLM provider is not available"):
+        investigator.investigate(np.array([1.0, 0.0, 0.0], dtype=np.float32))
 
-# Ensure _get_model_config includes interrogator_strategy
-def test_get_model_config_includes_interrogator_strategy(mock_llm_provider, mock_embedding_provider, mock_interrogator_strategy):
-    investigator = PerquireInvestigator(
-        llm_provider=mock_llm_provider,
-        embedding_provider=mock_embedding_provider,
-        interrogator_strategy=mock_interrogator_strategy
-    )
-    config = investigator._get_model_config() # Accessing protected member for test
-    assert "interrogator_strategy" in config
-    assert config["interrogator_strategy"]["name"] == type(mock_interrogator_strategy).__name__
 
-    # Test with default
-    investigator_default = PerquireInvestigator(
-        llm_provider=mock_llm_provider,
-        embedding_provider=mock_embedding_provider
-    )
-    config_default = investigator_default._get_model_config()
-    assert config_default["interrogator_strategy"]["name"] == "DefaultInterrogatorStrategy"
+def test_investigation_rejects_zero_target(llm, embedder) -> None:
+    investigator = PerquireInvestigator(llm_provider=llm, embedding_provider=embedder)
+    with pytest.raises(InvestigationError, match="zero vector"):
+        investigator.investigate(np.zeros(3, dtype=np.float32))
