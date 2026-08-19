@@ -15,15 +15,13 @@ from typing import Any
 from litellm import completion
 
 from ..exceptions import ConfigurationError
-from ..providers.rate_limit import RequestPacer
+from ..providers.rate_limit import get_shared_pacer
 from .base import BaseLLMProvider, LLMProviderError, LLMResponse
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "openai/gpt-oss-20b:free"
 DEFAULT_REQUESTS_PER_MINUTE = 20
-# Only an actual list marker is removed. A character-class strip would also eat
-# the leading digits of a real candidate such as "1980s synthpop revival".
 _LIST_MARKER = re.compile(r"^\s*(?:[-*\u2022]|\d+[.)])\s+")
 
 
@@ -46,11 +44,8 @@ class OpenRouterProvider(BaseLLMProvider):
 
     def __init__(self, config: dict[str, Any]):
         super().__init__(config)
-        self._pacer = RequestPacer(
-            requests_per_minute=int(
-                self.config.get("requests_per_minute", DEFAULT_REQUESTS_PER_MINUTE)
-            )
-        )
+        rpm = int(self.config.get("requests_per_minute", DEFAULT_REQUESTS_PER_MINUTE))
+        self._pacer = get_shared_pacer("openrouter", rpm)
 
     def validate_config(self) -> None:
         if not self._api_key():
@@ -76,7 +71,7 @@ class OpenRouterProvider(BaseLLMProvider):
                 temperature=kwargs.get("temperature", self.config.get("temperature", 0.7)),
                 max_tokens=kwargs.get("max_tokens", self.config.get("max_tokens", 256)),
             )
-        except Exception as error:  # litellm raises provider-specific transport errors
+        except Exception as error:
             logger.exception("OpenRouter completion failed")
             raise LLMProviderError(f"OpenRouter completion failed: {error}") from error
 
