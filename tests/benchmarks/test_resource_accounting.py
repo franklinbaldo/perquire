@@ -62,7 +62,7 @@ def test_every_method_spends_the_same_evaluation_budget(executed_case):
 def test_llm_calls_are_recorded_per_method(executed_case):
     _, _, _, _, meter, _ = executed_case
     assert meter.by_method["independent_best_of_n"]["llm_calls"] == 1
-    assert meter.by_method["mutation_hill_climber"]["llm_calls"] == BUDGET - 1
+    assert meter.by_method["mutation_hill_climber"]["llm_calls"] == BUDGET
     assert meter.by_method["adaptive_perquire"]["llm_calls"] == BUDGET
 
 
@@ -70,12 +70,22 @@ def test_transport_attempts_are_separate_from_logical_calls(executed_case):
     _, _, _, _, meter, target_attempts = executed_case
     assert target_attempts == 1
     assert meter.by_method["independent_best_of_n"]["llm_transport_attempts"] == 1
-    assert meter.by_method["mutation_hill_climber"]["llm_transport_attempts"] == BUDGET - 1
+    assert meter.by_method["mutation_hill_climber"]["llm_transport_attempts"] == BUDGET
     assert meter.by_method["adaptive_perquire"]["llm_transport_attempts"] == BUDGET
     assert {
         meter.by_method[method]["embedding_transport_attempts"]
         for method in meter.by_method
     } == {BUDGET}
+
+
+def test_hill_climber_pays_for_its_own_seed(executed_case):
+    _, llm, _, traces, meter, _ = executed_case
+    hill = next(trace for trace in traces if trace.method == "mutation_hill_climber")
+    independent = next(trace for trace in traces if trace.method == "independent_best_of_n")
+    assert hill.observations[0].candidate == "candidate 0"
+    assert meter.by_method["mutation_hill_climber"]["generated_candidates"] == BUDGET
+    assert f"c1:mutation_hill_climber:seed" in llm.request_ids
+    assert hill.observations[0] is not independent.observations[0]
 
 
 def test_generation_asymmetry_is_visible_in_the_record(executed_case):
@@ -86,6 +96,7 @@ def test_generation_asymmetry_is_visible_in_the_record(executed_case):
     }
     assert {record["evaluations"] for record in records.values()} == {BUDGET}
     assert records["adaptive_perquire"]["llm_calls"] > records["independent_best_of_n"]["llm_calls"]
+    assert records["mutation_hill_climber"]["llm_calls"] == records["adaptive_perquire"]["llm_calls"]
     for record in records.values():
         assert record["empty_generations"] == 0
         assert "llm_transport_attempts" in record
