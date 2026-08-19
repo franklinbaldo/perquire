@@ -16,12 +16,14 @@ from litellm import completion
 
 from ..exceptions import ConfigurationError
 from ..providers.rate_limit import get_shared_pacer
+from ..providers.retry import call_with_transient_retries
 from .base import BaseLLMProvider, LLMProviderError, LLMResponse
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "openai/gpt-oss-20b:free"
 DEFAULT_REQUESTS_PER_MINUTE = 20
+DEFAULT_MAX_RETRIES = 2
 _LIST_MARKER = re.compile(r"^\s*(?:[-*\u2022]|\d+[.)])\s+")
 
 
@@ -46,6 +48,7 @@ class OpenRouterProvider(BaseLLMProvider):
         super().__init__(config)
         rpm = int(self.config.get("requests_per_minute", DEFAULT_REQUESTS_PER_MINUTE))
         self._pacer = get_shared_pacer("openrouter", rpm)
+        self._max_retries = int(self.config.get("max_retries", DEFAULT_MAX_RETRIES))
 
     def validate_config(self) -> None:
         if not self._api_key():
@@ -62,14 +65,20 @@ class OpenRouterProvider(BaseLLMProvider):
         return f"openrouter/{self.config.get('model', DEFAULT_MODEL)}"
 
     def _complete(self, prompt: str, **kwargs: Any) -> str:
-        self._pacer.wait()
-        try:
-            response = completion(
+        def request():
+            return completion(
                 model=self.model,
                 messages=[{"role": "user", "content": prompt}],
                 api_key=self._api_key(),
                 temperature=kwargs.get("temperature", self.config.get("temperature", 0.7)),
                 max_tokens=kwargs.get("max_tokens", self.config.get("max_tokens", 256)),
+            )
+
+        try:
+            response = call_with_transient_retries(
+                request,
+                before_attempt=self._pacer.wait,
+                max_retries=self._max_retries,
             )
         except Exception as error:
             logger.exception("OpenRouter completion failed")
@@ -136,4 +145,5 @@ class OpenRouterProvider(BaseLLMProvider):
             "provider": "openrouter",
             "model": self.model,
             "requests_per_minute": self._pacer.requests_per_minute,
+            "max_retries": self._max_retries,
         }
