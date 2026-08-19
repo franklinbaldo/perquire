@@ -1,0 +1,117 @@
+name: OpenRouter live semantic smoke
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/openrouter-live-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Require OpenRouter credential and inspect safe metadata
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          test -n "${OPENROUTER_API_KEY}" || { echo '::error::OPENROUTER_API_KEY missing'; exit 1; }
+          curl --fail --silent --show-error https://openrouter.ai/api/v1/key \
+            -H "Authorization: Bearer ${OPENROUTER_API_KEY}" > key_metadata.json
+          python - <<'PY'
+          import json
+          data = json.load(open('key_metadata.json'))['data']
+          safe = {
+              'is_free_tier': data.get('is_free_tier'),
+              'limit_remaining': data.get('limit_remaining'),
+              'limit_reset': data.get('limit_reset'),
+          }
+          print('KEY_METADATA', json.dumps(safe, sort_keys=True))
+          PY
+
+      - name: Install only OpenRouter boundary
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[api-openrouter]'
+
+      - name: Run one-case budget-2 semantic inversion smoke
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          python -m benchmarks.run_semantic_inversion \
+            --llm-provider openrouter \
+            --embedding-provider openrouter \
+            --limit 1 \
+            --budget 2 \
+            --output benchmark_results/openrouter_smoke.json
+
+      - name: Verify and summarize auditable result
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('benchmark_results/openrouter_smoke.json').read_text())
+          assert data['case_count'] == 1
+          assert data['budget'] == 2
+          assert len(data['records']) == 3
+          assert {r['evaluations'] for r in data['records']} == {2}
+          assert all(r['best_target_similarity'] is not None for r in data['records'])
+          meta = json.load(open('key_metadata.json'))['data']
+          lines = [
+              '### OpenRouter live smoke: PASS',
+              '',
+              f"- key free-tier flag: `{meta.get('is_free_tier')}`",
+              '- case count: `1`',
+              '- target-similarity budget per method: `2`',
+              '- expected provider requests: `11`',
+              '',
+              '| method | best target similarity | LLM calls | evaluations |',
+              '|---|---:|---:|---:|',
+          ]
+          for r in data['records']:
+              lines.append(
+                  f"| `{r['method']}` | {r['best_target_similarity']:.6f} | {r['llm_calls']} | {r['evaluations']} |"
+              )
+          Path('smoke_summary.md').write_text('\n'.join(lines) + '\n')
+          print('\n'.join(lines))
+          PY
+
+      - name: Comment success evidence on PR 32
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr comment 32 --repo "$GITHUB_REPOSITORY" --body-file smoke_summary.md
+
+      - name: Comment failure on PR 32
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr comment 32 --repo "$GITHUB_REPOSITORY" --body "### OpenRouter live smoke: FAIL
+
+Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
+
+The ladder is blocked here; do not escalate to the mini benchmark until this failure is understood."
+
+      - name: Upload smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: openrouter-live-smoke
+          path: |
+            benchmark_results/openrouter_smoke.json
+            smoke_summary.md
+          if-no-files-found: warn
+          retention-days: 30
