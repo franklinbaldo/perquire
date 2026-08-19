@@ -15,7 +15,7 @@ import numpy as np
 from litellm import embedding
 
 from ..exceptions import ConfigurationError
-from ..providers.rate_limit import RequestPacer
+from ..providers.rate_limit import get_shared_pacer
 from .base import BaseEmbeddingProvider, EmbeddingError, EmbeddingResult
 
 logger = logging.getLogger(__name__)
@@ -29,11 +29,8 @@ class OpenRouterEmbeddingProvider(BaseEmbeddingProvider):
 
     def __init__(self, config: dict[str, Any]):
         super().__init__(config)
-        self._pacer = RequestPacer(
-            requests_per_minute=int(
-                self.config.get("requests_per_minute", DEFAULT_REQUESTS_PER_MINUTE)
-            )
-        )
+        rpm = int(self.config.get("requests_per_minute", DEFAULT_REQUESTS_PER_MINUTE))
+        self._pacer = get_shared_pacer("openrouter", rpm)
         self._dimensions: int | None = None
 
     def validate_config(self) -> None:
@@ -54,7 +51,7 @@ class OpenRouterEmbeddingProvider(BaseEmbeddingProvider):
         self._pacer.wait()
         try:
             response = embedding(model=self.model, input=texts, api_key=self._api_key())
-        except Exception as error:  # litellm raises provider-specific transport errors
+        except Exception as error:
             logger.exception("OpenRouter embedding failed")
             raise EmbeddingError(f"OpenRouter embedding failed: {error}") from error
 
