@@ -1,0 +1,24 @@
+{"case_id":"concrete-001","domain":"concrete","source_text":"A red bicycle is leaning against a brick wall after the rain."}
+{"case_id":"concrete-002","domain":"concrete","source_text":"A ceramic cup of black coffee sits beside an open notebook."}
+{"case_id":"concrete-003","domain":"concrete","source_text":"Three fishing boats return to a small harbor before sunset."}
+{"case_id":"emotion-001","domain":"emotion","source_text":"She felt nostalgic while sorting photographs from her childhood."}
+{"case_id":"emotion-002","domain":"emotion","source_text":"He was relieved when the medical examination showed nothing serious."}
+{"case_id":"emotion-003","domain":"emotion","source_text":"The team remained cautiously optimistic after the first successful test."}
+{"case_id":"abstract-001","domain":"abstract","source_text":"A fair procedure can matter independently of whether its outcome is favorable."}
+{"case_id":"abstract-002","domain":"abstract","source_text":"Uncertainty should be represented explicitly rather than hidden behind a precise number."}
+{"case_id":"abstract-003","domain":"abstract","source_text":"A useful model discards details while preserving the structure needed for its task."}
+{"case_id":"factual-001","domain":"factual","source_text":"Water freezes at zero degrees Celsius at standard atmospheric pressure."}
+{"case_id":"factual-002","domain":"factual","source_text":"The Amazon River basin contains the largest tropical rainforest on Earth."}
+{"case_id":"factual-003","domain":"factual","source_text":"Brasilia became the capital of Brazil in 1960."}
+{"case_id":"legal-001","domain":"legal","source_text":"A court must address arguments capable of changing the result of the judgment."}
+{"case_id":"legal-002","domain":"legal","source_text":"A binding precedent constrains later decisions unless a legally sufficient distinction applies."}
+{"case_id":"legal-003","domain":"legal","source_text":"Procedural fairness requires that affected parties have a meaningful opportunity to be heard."}
+{"case_id":"causal-001","domain":"causal","source_text":"The road flooded because heavy rain overwhelmed the drainage system."}
+{"case_id":"causal-002","domain":"causal","source_text":"Reducing the search budget lowered cost but also reduced the chance of finding a strong candidate."}
+{"case_id":"causal-003","domain":"causal","source_text":"The experiment failed because the calibration examples did not span the retained representation space."}
+{"case_id":"compositional-001","domain":"compositional","source_text":"A small dog wearing a yellow raincoat waits under a blue umbrella."}
+{"case_id":"compositional-002","domain":"compositional","source_text":"An old library was converted into a bright coworking space without removing its wooden shelves."}
+{"case_id":"compositional-003","domain":"compositional","source_text":"The proposal is inexpensive and fast to deploy but difficult to audit after the fact."}
+{"case_id":"metaphor-001","domain":"metaphor","source_text":"The committee kept rearranging the furniture while the building was on fire."}
+{"case_id":"metaphor-002","domain":"metaphor","source_text":"The new evidence opened a door that the original theory had declared to be a wall."}
+{"case_id":"metaphor-003","domain":"metaphor","source_text":"The project had grown a large shell around a very small untested idea."}
