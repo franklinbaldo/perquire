@@ -140,11 +140,11 @@ def run_case(
         candidate_embedding = embedder.embed_text(candidate).embedding
         return float(cosine_similarity(target, candidate_embedding))
 
+    independent_call = 0
+
     def independent_generate(_prompt: str, count: int) -> list[str]:
+        nonlocal independent_call
         candidates: list[str] = []
-        # A single model response is usually enough, but partial formatting must
-        # not silently shrink the target-similarity budget. Extra logical calls
-        # are allowed and explicitly metered.
         max_calls = max(2, count)
         for _ in range(max_calls):
             remaining = count - len(candidates)
@@ -155,7 +155,9 @@ def run_case(
                 "They must be independent guesses: do not assume any feedback about a hidden target. "
                 "Return one description per line and no commentary."
             )
-            response = llm.generate_response(prompt)
+            request_id = f"{case.case_id}:independent_best_of_n:{independent_call}"
+            independent_call += 1
+            response = llm.generate_response(prompt, cache_request_id=request_id)
             batch = parse_candidates(response.content, remaining)
             meter.record(batch)
             for candidate in batch:
@@ -167,13 +169,18 @@ def run_case(
             )
         return candidates
 
+    mutation_call = 0
+
     def mutate(candidate: str, count: int) -> list[str]:
+        nonlocal mutation_call
         prompt = (
             f"Produce {count} concise semantic variation of this candidate: {candidate!r}. "
             "Change its meaning enough to explore a nearby alternative. "
             "Return one candidate per line and no commentary."
         )
-        response = llm.generate_response(prompt)
+        request_id = f"{case.case_id}:mutation_hill_climber:{mutation_call}"
+        mutation_call += 1
+        response = llm.generate_response(prompt, cache_request_id=request_id)
         candidates = parse_candidates(response.content, count)
         meter.record(candidates)
         if len(candidates) != count:
@@ -191,6 +198,7 @@ def run_case(
             target_similarity=best_score or 0.0,
             phase=phase,
             previous_questions=previous,
+            cache_request_id=f"{case.case_id}:adaptive_perquire:{step}",
         )
         meter.record(list(questions))
         if not questions:
@@ -269,6 +277,8 @@ def main() -> None:
             }
         )
 
+    llm_info = llm.get_model_info() if hasattr(llm, "get_model_info") else {}
+    embedding_info = embedder.get_model_info() if hasattr(embedder, "get_model_info") else {}
     payload = {
         "benchmark": "semantic-inversion-benchmark-v1",
         "budget": args.budget,
@@ -277,6 +287,15 @@ def main() -> None:
         "case_count": len(cases),
         "budget_unit": "target_similarity_evaluation",
         "case_overheads": case_overheads,
+        "cache": {
+            "llm_mode": llm_info.get("cache_mode"),
+            "llm_hits": llm_info.get("cache_hits", 0),
+            "llm_misses": llm_info.get("cache_misses", 0),
+            "llm_writes": llm_info.get("cache_writes", 0),
+            "embedding_hits": embedding_info.get("cache_hits", 0),
+            "embedding_misses": embedding_info.get("cache_misses", 0),
+            "embedding_writes": embedding_info.get("cache_writes", 0),
+        },
         "notes": {
             "hill_climber_seed": (
                 "mutation_hill_climber starts from the first independent_best_of_n candidate; "
@@ -286,6 +305,10 @@ def main() -> None:
             "transport_attempts": (
                 "llm_transport_attempts and embedding_transport_attempts include bounded retries; "
                 "llm_calls counts logical generation operations requested by each method."
+            ),
+            "llm_replay": (
+                "LLM replay cache keys include case/method/step logical identity plus model, prompt, "
+                "temperature, and max_tokens. A hit replays an observed sample and is not a fresh draw."
             ),
         },
         "records": records,
