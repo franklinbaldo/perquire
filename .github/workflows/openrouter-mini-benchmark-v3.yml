@@ -21,11 +21,13 @@ jobs:
           python-version: '3.12'
           cache: pip
       - name: Restore accumulated semantic cache
-        uses: actions/cache@v4
+        id: semantic-cache
+        uses: actions/cache/restore@v4
         with:
           path: .cache/perquire
-          key: perquire-mini-v3-${{ runner.os }}-${{ github.run_id }}
+          key: perquire-mini-v3-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
+            perquire-mini-v3-${{ runner.os }}-${{ github.run_id }}-
             perquire-embeddings-v1-${{ runner.os }}-
             perquire-mini-v3-${{ runner.os }}-
       - name: Require OpenRouter credential
@@ -79,6 +81,12 @@ jobs:
                   'llm_transport_attempts=', transports[method],
               )
           PY
+      - name: Save partial semantic cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .cache/perquire
+          key: perquire-mini-v3-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Upload auditable mini evidence
         if: always()
         uses: actions/upload-artifact@v4
