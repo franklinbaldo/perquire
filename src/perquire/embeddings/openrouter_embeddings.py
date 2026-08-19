@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 from litellm import embedding
 
 from ..exceptions import ConfigurationError
+from ..providers.embedding_cache import EmbeddingCache, default_embedding_cache_path
 from ..providers.rate_limit import get_shared_pacer
 from ..providers.retry import call_with_transient_retries
 from .base import BaseEmbeddingProvider, EmbeddingError, EmbeddingResult
@@ -34,7 +36,12 @@ class OpenRouterEmbeddingProvider(BaseEmbeddingProvider):
         rpm = int(self.config.get("requests_per_minute", DEFAULT_REQUESTS_PER_MINUTE))
         self._pacer = get_shared_pacer("openrouter", rpm)
         self._max_retries = int(self.config.get("max_retries", DEFAULT_MAX_RETRIES))
+        cache_path = Path(self.config.get("cache_path") or default_embedding_cache_path())
+        self._cache = EmbeddingCache(cache_path)
         self.transport_attempts = 0
+        self.cache_hits = 0
+        self.cache_misses = 0
+        self.cache_writes = 0
         self._dimensions: int | None = None
 
     def validate_config(self) -> None:
@@ -51,7 +58,7 @@ class OpenRouterEmbeddingProvider(BaseEmbeddingProvider):
     def model(self) -> str:
         return f"openrouter/{self.config.get('model', DEFAULT_MODEL)}"
 
-    def _embed(self, texts: list[str]) -> list[np.ndarray]:
+    def _embed_uncached(self, texts: list[str]) -> list[np.ndarray]:
         def request():
             self.transport_attempts += 1
             return embedding(model=self.model, input=texts, api_key=self._api_key())
@@ -71,6 +78,37 @@ class OpenRouterEmbeddingProvider(BaseEmbeddingProvider):
         if vectors:
             self._dimensions = int(vectors[0].size)
         return vectors
+
+    def _embed(self, texts: list[str]) -> list[np.ndarray]:
+        vectors: list[np.ndarray | None] = [None] * len(texts)
+        missing_indexes: list[int] = []
+        missing_texts: list[str] = []
+
+        for index, text in enumerate(texts):
+            cached = self._cache.get(self.model, text)
+            if cached is None:
+                self.cache_misses += 1
+                missing_indexes.append(index)
+                missing_texts.append(text)
+            else:
+                self.cache_hits += 1
+                self._dimensions = int(cached.size)
+                vectors[index] = cached
+
+        if missing_texts:
+            fetched = self._embed_uncached(missing_texts)
+            if len(fetched) != len(missing_texts):
+                raise EmbeddingError(
+                    f"OpenRouter returned {len(fetched)} embeddings for {len(missing_texts)} inputs"
+                )
+            for index, text, vector in zip(missing_indexes, missing_texts, fetched, strict=True):
+                self._cache.put(self.model, text, vector)
+                self.cache_writes += 1
+                vectors[index] = vector
+
+        if any(vector is None for vector in vectors):
+            raise EmbeddingError("Embedding cache/fetch pipeline left an input unresolved")
+        return [vector for vector in vectors if vector is not None]
 
     def _result(self, text: str, vector: np.ndarray) -> EmbeddingResult:
         return EmbeddingResult(
@@ -110,4 +148,8 @@ class OpenRouterEmbeddingProvider(BaseEmbeddingProvider):
             "requests_per_minute": self._pacer.requests_per_minute,
             "max_retries": self._max_retries,
             "transport_attempts": self.transport_attempts,
+            "cache_hits": self.cache_hits,
+            "cache_misses": self.cache_misses,
+            "cache_writes": self.cache_writes,
+            "cache_path": str(self._cache.path),
         }
