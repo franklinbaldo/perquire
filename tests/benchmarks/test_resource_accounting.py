@@ -72,3 +72,16 @@ def test_hidden_source_text_never_reaches_a_proposer(executed_case):
     case, llm, _, _ = executed_case
     assert llm.prompts
     assert all(case.source_text not in prompt for prompt in llm.prompts)
+
+
+def test_candidate_parsing_keeps_leading_digits():
+    """A candidate that legitimately starts with a digit must survive parsing.
+
+    Stripping enumeration with a character class also eats real leading digits,
+    which silently changes the text that gets embedded and scored.
+    """
+    from benchmarks.run_semantic_inversion import parse_candidates
+
+    assert parse_candidates("- 3D printing techniques", 1) == ["3D printing techniques"]
+    assert parse_candidates("1980s synthpop revival", 1) == ["1980s synthpop revival"]
+    assert parse_candidates("2. 1980s synthpop revival", 1) == ["1980s synthpop revival"]

@@ -1,16 +1,12 @@
 name: Live semantic inversion benchmark
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/live-semantic-inversion.yml'
   workflow_dispatch:
 
 jobs:
   benchmark:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
 
     steps:
       - uses: actions/checkout@v4
@@ -21,29 +17,29 @@ jobs:
           python-version: '3.12'
           cache: pip
 
-      - name: Install Perquire with Gemini providers
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e '.[api-gemini]'
-
       - name: Require a provider credential
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
-          if [ -z "${GEMINI_API_KEY}" ]; then
-            echo "::error::GEMINI_API_KEY is empty. Add the repository secret before running the live benchmark."
+          if [ -z "${OPENROUTER_API_KEY}" ]; then
+            echo "::error::OPENROUTER_API_KEY is empty. Add the repository secret before running the live benchmark."
             exit 1
           fi
           echo "Provider credential present."
 
+      - name: Install Perquire with OpenRouter providers
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[api-openrouter]'
+
       - name: Run benchmark v1
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           python -m benchmarks.run_semantic_inversion \
-            --llm-provider gemini \
-            --embedding-provider gemini \
-            --budget 10 \
+            --llm-provider openrouter \
+            --embedding-provider openrouter \
+            --budget 6 \
             --output benchmark_results/semantic_inversion_v1.json
 
       - name: Upload auditable benchmark result

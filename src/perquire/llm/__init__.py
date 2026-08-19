@@ -10,6 +10,11 @@ _PROVIDER_SPECS = {
     "openai": (".openai_provider", "OpenAIProvider", {"model": "gpt-3.5-turbo"}),
     "gemini": (".gemini_provider", "GeminiProvider", {"model": "gemini-2.5-flash-lite-preview-06-17"}),
     "anthropic": (".anthropic_provider", "AnthropicProvider", {"model": "claude-3-sonnet-20240229"}),
+    "openrouter": (
+        ".openrouter_provider",
+        "OpenRouterProvider",
+        {"model": "openai/gpt-oss-20b:free"},
+    ),
     "ollama": (".ollama_provider", "OllamaProvider", {"model": "llama2", "base_url": "http://localhost:11434"}),
 }
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -35,10 +36,16 @@ def load_cases(path: Path) -> list[BenchmarkCase]:
     return cases
 
 
+# Only an actual list marker is removed. A character-class strip would also eat
+# the leading digits of a real candidate such as "1980s synthpop revival",
+# silently changing the text that gets embedded and scored.
+_LIST_MARKER = re.compile(r"^\s*(?:[-*\u2022]|\d+[.)])\s+")
+
+
 def parse_candidates(content: str, count: int) -> list[str]:
     candidates: list[str] = []
     for raw in content.splitlines():
-        text = raw.strip().lstrip("-*0123456789. )").strip()
+        text = _LIST_MARKER.sub("", raw.strip()).strip()
         if text and text not in candidates:
             candidates.append(text)
         if len(candidates) >= count:
