@@ -171,6 +171,21 @@ def run_case(
 
     mutation_call = 0
 
+    def generate_hill_seed() -> str:
+        prompt = (
+            "Generate 1 concise semantic description as an independent initial guess. "
+            "Do not assume any feedback about a hidden target. Return one description and no commentary."
+        )
+        response = llm.generate_response(
+            prompt,
+            cache_request_id=f"{case.case_id}:mutation_hill_climber:seed",
+        )
+        candidates = parse_candidates(response.content, 1)
+        meter.record(candidates)
+        if len(candidates) != 1:
+            raise RuntimeError("mutation_hill_climber failed to generate its initial seed")
+        return candidates[0]
+
     def mutate(candidate: str, count: int) -> list[str]:
         nonlocal mutation_call
         prompt = (
@@ -215,8 +230,8 @@ def run_case(
     )
     meter.finish(llm=llm, embedder=embedder)
 
-    initial = independent.observations[0].candidate
     meter.start("mutation_hill_climber", llm=llm, embedder=embedder)
+    initial = generate_hill_seed()
     hill = mutation_hill_climber(
         initial=initial,
         mutate=mutate,
@@ -298,9 +313,8 @@ def main() -> None:
         },
         "notes": {
             "hill_climber_seed": (
-                "mutation_hill_climber starts from the first independent_best_of_n candidate; "
-                "that candidate's generation cost is attributed to independent_best_of_n, "
-                "while its evaluation is charged to mutation_hill_climber."
+                "mutation_hill_climber generates and pays for its own independent initial seed; "
+                "the seed's generation and target-similarity evaluation are both attributed to that method."
             ),
             "transport_attempts": (
                 "llm_transport_attempts and embedding_transport_attempts include bounded retries; "
