@@ -26,11 +26,21 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e '.[api-gemini]'
 
+      - name: Require a provider credential
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          if [ -z "${GEMINI_API_KEY}" ]; then
+            echo "::error::GEMINI_API_KEY is empty. Add the repository secret before running the live benchmark."
+            exit 1
+          fi
+          echo "Provider credential present."
+
       - name: Run benchmark v1
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          python benchmarks/run_semantic_inversion.py \
+          python -m benchmarks.run_semantic_inversion \
             --llm-provider gemini \
             --embedding-provider gemini \
             --budget 10 \
