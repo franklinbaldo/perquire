@@ -10,6 +10,11 @@ from ..exceptions import ConfigurationError
 _PROVIDER_SPECS = {
     "openai": (".openai_embeddings", "OpenAIEmbeddingProvider", {"model": "text-embedding-ada-002"}),
     "gemini": (".gemini_embeddings", "GeminiEmbeddingProvider", {"model": "models/embedding-001"}),
+    "openrouter": (
+        ".openrouter_embeddings",
+        "OpenRouterEmbeddingProvider",
+        {"model": "nvidia/nemotron-3-embed-1b:free"},
+    ),
 }
 
 

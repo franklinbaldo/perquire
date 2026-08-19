@@ -32,4 +32,4 @@ def test_live_workflow_uses_the_module_entrypoint():
 
 def test_live_workflow_fails_fast_without_a_credential():
     content = WORKFLOW.read_text(encoding="utf-8")
-    assert 'if [ -z "${GEMINI_API_KEY}" ]' in content
+    assert 'if [ -z "${OPENROUTER_API_KEY}" ]' in content
