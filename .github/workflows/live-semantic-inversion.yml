@@ -1,10 +1,6 @@
 name: Live semantic inversion benchmark
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/live-semantic-inversion.yml'
   workflow_dispatch:
 
 jobs:
