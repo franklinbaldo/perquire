@@ -21,6 +21,18 @@ class RequestPacer:
     sleep: Callable[[float], None] = time.sleep
     _last_request_at: float | None = field(default=None, init=False, repr=False)
 
+    def _elapsed_now(self) -> float:
+        """Current time on a timeline that never runs backwards.
+
+        `sleep` may return early, and an injected clock need not advance by the
+        slept amount. Reading the raw clock alone would then see a negative
+        elapsed interval and inflate every subsequent wait (3s, 6s, 9s, ...).
+        """
+        now = self.clock()
+        if self._last_request_at is None:
+            return now
+        return max(now, self._last_request_at)
+
     @property
     def min_interval(self) -> float:
         if self.requests_per_minute <= 0:
@@ -33,7 +45,7 @@ class RequestPacer:
         if interval <= 0.0:
             return
 
-        now = self.clock()
+        now = self._elapsed_now()
         if self._last_request_at is not None:
             remaining = interval - (now - self._last_request_at)
             if remaining > 0.0:

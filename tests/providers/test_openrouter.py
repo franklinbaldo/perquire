@@ -164,3 +164,21 @@ def test_parse_lines_strips_list_markers_but_keeps_leading_digits():
     assert parse_lines("2. 1980s synthpop revival") == ["1980s synthpop revival"]
     assert parse_lines("1980s synthpop revival") == ["1980s synthpop revival"]
     assert parse_lines("* a plain bullet") == ["a plain bullet"]
+
+
+def test_pacer_does_not_inflate_waits_when_sleep_returns_early():
+    """A short sleep must not compound into ever-longer waits.
+
+    time.sleep can return early, so the pacer cannot assume the clock advanced
+    by the amount it asked for. Reading a clock that appears to run backwards
+    would otherwise grow every subsequent wait: 3s, 6s, 9s, ...
+    """
+    slept: list[float] = []
+    pacer = RequestPacer(
+        requests_per_minute=20, clock=lambda: 0.0, sleep=lambda seconds: slept.append(seconds)
+    )
+
+    for _ in range(4):
+        pacer.wait()
+
+    assert slept == [pytest.approx(3.0)] * 3
