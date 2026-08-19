@@ -36,9 +36,6 @@ def load_cases(path: Path) -> list[BenchmarkCase]:
     return cases
 
 
-# Only an actual list marker is removed. A character-class strip would also eat
-# the leading digits of a real candidate such as "1980s synthpop revival",
-# silently changing the text that gets embedded and scored.
 _LIST_MARKER = re.compile(r"^\s*(?:[-*\u2022]|\d+[.)])\s+")
 
 
@@ -66,6 +63,8 @@ def trace_to_dict(
         "best_target_similarity": trace.best.target_similarity if trace.best else None,
         "evaluations": len(trace.observations),
         "llm_calls": usage.get("llm_calls", 0),
+        "llm_transport_attempts": usage.get("llm_transport_attempts", 0),
+        "embedding_transport_attempts": usage.get("embedding_transport_attempts", 0),
         "generated_candidates": usage.get("generated_candidates", 0),
         "empty_generations": usage.get("empty_generations", 0),
         "observations": [
@@ -80,27 +79,47 @@ def trace_to_dict(
 
 
 class ResourceMeter:
-    """Track non-evaluation resources so equal-budget claims stay auditable.
-
-    The contract fixes the budget in target-similarity evaluations only. LLM
-    calls and generated candidates are counted per method so a win bought with
-    extra generation compute cannot be reported as an adaptivity win.
-    """
+    """Track logical generation and real transport attempts per method."""
 
     def __init__(self) -> None:
         self.by_method: dict[str, dict[str, int]] = {}
         self.method = "unattributed"
+        self._llm_start = 0
+        self._embedding_start = 0
 
-    def start(self, method: str) -> None:
+    @staticmethod
+    def _transport_attempts(provider: Any) -> int:
+        return int(getattr(provider, "transport_attempts", 0))
+
+    def _bucket(self, method: str) -> dict[str, int]:
+        return self.by_method.setdefault(
+            method,
+            {
+                "llm_calls": 0,
+                "llm_transport_attempts": 0,
+                "embedding_transport_attempts": 0,
+                "generated_candidates": 0,
+                "empty_generations": 0,
+            },
+        )
+
+    def start(self, method: str, *, llm: Any, embedder: Any) -> None:
         self.method = method
-        self.by_method.setdefault(
-            method, {"llm_calls": 0, "generated_candidates": 0, "empty_generations": 0}
+        self._bucket(method)
+        self._llm_start = self._transport_attempts(llm)
+        self._embedding_start = self._transport_attempts(embedder)
+
+    def finish(self, *, llm: Any, embedder: Any) -> None:
+        bucket = self._bucket(self.method)
+        bucket["llm_transport_attempts"] += (
+            self._transport_attempts(llm) - self._llm_start
+        )
+        bucket["embedding_transport_attempts"] += (
+            self._transport_attempts(embedder) - self._embedding_start
         )
 
     def record(self, candidates: list[str]) -> None:
-        bucket = self.by_method.setdefault(
-            self.method, {"llm_calls": 0, "generated_candidates": 0, "empty_generations": 0}
-        )
+        bucket = self._bucket(self.method)
         bucket["llm_calls"] += 1
         bucket["generated_candidates"] += len(candidates)
         if not candidates:
@@ -109,8 +128,12 @@ class ResourceMeter:
 
 def run_case(
     case: BenchmarkCase, *, llm: Any, embedder: Any, budget: int
-) -> tuple[list[SearchTrace], ResourceMeter]:
+) -> tuple[list[SearchTrace], ResourceMeter, int]:
+    target_before = int(getattr(embedder, "transport_attempts", 0))
     target = embedder.embed_text(case.source_text).embedding
+    target_embedding_transport_attempts = (
+        int(getattr(embedder, "transport_attempts", 0)) - target_before
+    )
     meter = ResourceMeter()
 
     def score(candidate: str) -> float:
@@ -118,14 +141,30 @@ def run_case(
         return float(cosine_similarity(target, candidate_embedding))
 
     def independent_generate(_prompt: str, count: int) -> list[str]:
-        prompt = (
-            f"Generate {count} diverse, concise semantic descriptions. "
-            "They must be independent guesses: do not assume any feedback about a hidden target. "
-            "Return one description per line and no commentary."
-        )
-        response = llm.generate_response(prompt)
-        candidates = parse_candidates(response.content, count)
-        meter.record(candidates)
+        candidates: list[str] = []
+        # A single model response is usually enough, but partial formatting must
+        # not silently shrink the target-similarity budget. Extra logical calls
+        # are allowed and explicitly metered.
+        max_calls = max(2, count)
+        for _ in range(max_calls):
+            remaining = count - len(candidates)
+            if remaining <= 0:
+                break
+            prompt = (
+                f"Generate {remaining} diverse, concise semantic descriptions. "
+                "They must be independent guesses: do not assume any feedback about a hidden target. "
+                "Return one description per line and no commentary."
+            )
+            response = llm.generate_response(prompt)
+            batch = parse_candidates(response.content, remaining)
+            meter.record(batch)
+            for candidate in batch:
+                if candidate not in candidates:
+                    candidates.append(candidate)
+        if len(candidates) != count:
+            raise RuntimeError(
+                f"independent_best_of_n produced {len(candidates)} candidates for budget {count}"
+            )
         return candidates
 
     def mutate(candidate: str, count: int) -> list[str]:
@@ -137,6 +176,10 @@ def run_case(
         response = llm.generate_response(prompt)
         candidates = parse_candidates(response.content, count)
         meter.record(candidates)
+        if len(candidates) != count:
+            raise RuntimeError(
+                f"mutation_hill_climber produced {len(candidates)} candidates; expected {count}"
+            )
         return candidates
 
     previous: list[str] = []
@@ -149,32 +192,46 @@ def run_case(
             phase=phase,
             previous_questions=previous,
         )
-        candidate = questions[0] if questions else "A general semantic concept"
         meter.record(list(questions))
+        if not questions:
+            raise RuntimeError("adaptive_perquire received no candidate from provider")
+        candidate = questions[0]
         previous.append(candidate)
         return candidate
 
-    meter.start("independent_best_of_n")
+    meter.start("independent_best_of_n", llm=llm, embedder=embedder)
     independent = independent_best_of_n(
         generate=independent_generate,
         score=score,
         budget=budget,
     )
-    initial = independent.observations[0].candidate if independent.observations else "A general concept"
-    meter.start("mutation_hill_climber")
+    meter.finish(llm=llm, embedder=embedder)
+
+    initial = independent.observations[0].candidate
+    meter.start("mutation_hill_climber", llm=llm, embedder=embedder)
     hill = mutation_hill_climber(
         initial=initial,
         mutate=mutate,
         score=score,
         budget=budget,
     )
-    meter.start("adaptive_perquire")
+    meter.finish(llm=llm, embedder=embedder)
+
+    meter.start("adaptive_perquire", llm=llm, embedder=embedder)
     adaptive = adaptive_feedback_search(
         propose=adaptive_propose,
         score=score,
         budget=budget,
     )
-    return [independent, hill, adaptive], meter
+    meter.finish(llm=llm, embedder=embedder)
+
+    traces = [independent, hill, adaptive]
+    for trace in traces:
+        if len(trace.observations) != budget:
+            raise RuntimeError(
+                f"{trace.method} spent {len(trace.observations)} evaluations; expected {budget}"
+            )
+    return traces, meter, target_embedding_transport_attempts
 
 
 def main() -> None:
@@ -197,10 +254,19 @@ def main() -> None:
         cases = cases[: args.limit]
 
     records: list[dict[str, Any]] = []
+    case_overheads: list[dict[str, Any]] = []
     for case in cases:
-        traces, meter = run_case(case, llm=llm, embedder=embedder, budget=args.budget)
+        traces, meter, target_attempts = run_case(
+            case, llm=llm, embedder=embedder, budget=args.budget
+        )
         records.extend(
             trace_to_dict(case, trace, meter.by_method.get(trace.method)) for trace in traces
+        )
+        case_overheads.append(
+            {
+                "case_id": case.case_id,
+                "target_embedding_transport_attempts": target_attempts,
+            }
         )
 
     payload = {
@@ -210,12 +276,17 @@ def main() -> None:
         "embedding_provider": args.embedding_provider,
         "case_count": len(cases),
         "budget_unit": "target_similarity_evaluation",
+        "case_overheads": case_overheads,
         "notes": {
             "hill_climber_seed": (
                 "mutation_hill_climber starts from the first independent_best_of_n candidate; "
                 "that candidate's generation cost is attributed to independent_best_of_n, "
                 "while its evaluation is charged to mutation_hill_climber."
-            )
+            ),
+            "transport_attempts": (
+                "llm_transport_attempts and embedding_transport_attempts include bounded retries; "
+                "llm_calls counts logical generation operations requested by each method."
+            ),
         },
         "records": records,
     }
