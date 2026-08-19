@@ -132,6 +132,31 @@ def test_pacer_disabled_never_sleeps():
     assert slept == []
 
 
+def test_llm_and_embeddings_share_the_same_openrouter_quota(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    llm_provider = OpenRouterProvider(
+        config={"model": "openai/gpt-oss-20b:free", "requests_per_minute": 20}
+    )
+    embedding_provider = OpenRouterEmbeddingProvider(
+        config={"model": "nvidia/nemotron-3-embed-1b:free", "requests_per_minute": 20}
+    )
+
+    assert llm_provider._pacer is embedding_provider._pacer
+
+    now = [0.0]
+    slept: list[float] = []
+    shared = llm_provider._pacer
+    shared.clock = lambda: now[0]
+    shared.sleep = lambda seconds: slept.append(seconds)
+    shared._last_request_at = None
+
+    llm_provider._pacer.wait()
+    embedding_provider._pacer.wait()
+    llm_provider._pacer.wait()
+
+    assert slept == [pytest.approx(3.0), pytest.approx(3.0)]
+
+
 def test_parse_lines_strips_list_markers_but_keeps_leading_digits():
     from perquire.llm.openrouter_provider import parse_lines
 
