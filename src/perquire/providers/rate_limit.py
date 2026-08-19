@@ -13,10 +13,6 @@ _SECONDS_PER_MINUTE = 60.0
 class RequestPacer:
     """Space outgoing requests so a published per-minute rate is not exceeded.
 
-    OpenRouter's free tier allows 20 requests per minute, and a benchmark sweep
-    issues far more than that back to back. Pacing locally keeps the run inside
-    the published rate instead of relying on retries after rejection.
-
     A rate of zero disables pacing, which keeps tests free of real waiting.
     """
 
@@ -44,3 +40,24 @@ class RequestPacer:
                 self.sleep(remaining)
                 now += remaining
         self._last_request_at = now
+
+
+_SHARED_PACERS: dict[tuple[str, int], RequestPacer] = {}
+
+
+def get_shared_pacer(namespace: str, requests_per_minute: int) -> RequestPacer:
+    """Return one process-wide pacer for all calls sharing an API rate limit.
+
+    Provider roles that use the same upstream quota (for example OpenRouter chat
+    and embedding requests) must share the same pacer. Otherwise two independent
+    20 RPM pacers can accidentally emit roughly 40 RPM in aggregate.
+
+    The namespace intentionally identifies the upstream quota rather than the
+    secret value, so credentials are never retained as registry keys.
+    """
+    key = (namespace, requests_per_minute)
+    pacer = _SHARED_PACERS.get(key)
+    if pacer is None:
+        pacer = RequestPacer(requests_per_minute=requests_per_minute)
+        _SHARED_PACERS[key] = pacer
+    return pacer
