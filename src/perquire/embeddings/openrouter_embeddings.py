@@ -16,12 +16,14 @@ from litellm import embedding
 
 from ..exceptions import ConfigurationError
 from ..providers.rate_limit import get_shared_pacer
+from ..providers.retry import call_with_transient_retries
 from .base import BaseEmbeddingProvider, EmbeddingError, EmbeddingResult
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "nvidia/nemotron-3-embed-1b:free"
 DEFAULT_REQUESTS_PER_MINUTE = 20
+DEFAULT_MAX_RETRIES = 2
 
 
 class OpenRouterEmbeddingProvider(BaseEmbeddingProvider):
@@ -31,6 +33,7 @@ class OpenRouterEmbeddingProvider(BaseEmbeddingProvider):
         super().__init__(config)
         rpm = int(self.config.get("requests_per_minute", DEFAULT_REQUESTS_PER_MINUTE))
         self._pacer = get_shared_pacer("openrouter", rpm)
+        self._max_retries = int(self.config.get("max_retries", DEFAULT_MAX_RETRIES))
         self._dimensions: int | None = None
 
     def validate_config(self) -> None:
@@ -48,9 +51,15 @@ class OpenRouterEmbeddingProvider(BaseEmbeddingProvider):
         return f"openrouter/{self.config.get('model', DEFAULT_MODEL)}"
 
     def _embed(self, texts: list[str]) -> list[np.ndarray]:
-        self._pacer.wait()
+        def request():
+            return embedding(model=self.model, input=texts, api_key=self._api_key())
+
         try:
-            response = embedding(model=self.model, input=texts, api_key=self._api_key())
+            response = call_with_transient_retries(
+                request,
+                before_attempt=self._pacer.wait,
+                max_retries=self._max_retries,
+            )
         except Exception as error:
             logger.exception("OpenRouter embedding failed")
             raise EmbeddingError(f"OpenRouter embedding failed: {error}") from error
@@ -97,4 +106,5 @@ class OpenRouterEmbeddingProvider(BaseEmbeddingProvider):
             "model": self.model,
             "dimensions": self._dimensions,
             "requests_per_minute": self._pacer.requests_per_minute,
+            "max_retries": self._max_retries,
         }
