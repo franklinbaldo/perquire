@@ -1,0 +1,89 @@
+name: OpenRouter mini semantic benchmark v3
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  mini:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && github.head_ref == 'exp/openrouter-mini-benchmark-v3' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PERQUIRE_CACHE_DIR: .cache/perquire
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Restore accumulated semantic cache
+        uses: actions/cache@v4
+        with:
+          path: .cache/perquire
+          key: perquire-mini-v3-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            perquire-embeddings-v1-${{ runner.os }}-
+            perquire-mini-v3-${{ runner.os }}-
+      - name: Require OpenRouter credential
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          test -n "${OPENROUTER_API_KEY}" || { echo '::error::OPENROUTER_API_KEY missing'; exit 1; }
+      - name: Install only OpenRouter boundary
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[api-openrouter]'
+      - name: Run three-case budget-3 mini benchmark
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          python -m benchmarks.run_semantic_inversion \
+            --llm-provider openrouter \
+            --embedding-provider openrouter \
+            --limit 3 \
+            --budget 3 \
+            --output benchmark_results/openrouter_mini_v3.json
+      - name: Summarize falsifiable mini evidence
+        run: |
+          python - <<'PY'
+          import json
+          from collections import defaultdict
+          from pathlib import Path
+
+          data = json.loads(Path('benchmark_results/openrouter_mini_v3.json').read_text())
+          assert data['case_count'] == 3
+          assert data['budget'] == 3
+          assert len(data['records']) == 9
+
+          scores = defaultdict(list)
+          logical_calls = defaultdict(int)
+          transports = defaultdict(int)
+          for record in data['records']:
+              assert record['evaluations'] == 3
+              scores[record['method']].append(record['best_target_similarity'])
+              logical_calls[record['method']] += record['llm_calls']
+              transports[record['method']] += record['llm_transport_attempts']
+
+          print('MINI_BENCHMARK_V3_OK')
+          print('cache', json.dumps(data.get('cache', {}), sort_keys=True))
+          for method in sorted(scores):
+              mean = sum(scores[method]) / len(scores[method])
+              print(
+                  method,
+                  'mean_best=', round(mean, 6),
+                  'llm_calls=', logical_calls[method],
+                  'llm_transport_attempts=', transports[method],
+              )
+          PY
+      - name: Upload auditable mini evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: openrouter-mini-benchmark-v3
+          path: benchmark_results/openrouter_mini_v3.json
+          if-no-files-found: warn
+          retention-days: 30
