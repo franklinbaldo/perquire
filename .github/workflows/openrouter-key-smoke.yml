@@ -1,0 +1,38 @@
+name: OpenRouter Key Smoke
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/openrouter-key-smoke.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  authenticate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate repository secret without exposing it
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${OPENROUTER_API_KEY:-}" ]; then
+            echo "::error::OPENROUTER_API_KEY is missing or empty"
+            exit 1
+          fi
+
+          status="$(curl --silent --show-error \
+            --output /tmp/openrouter-key.json \
+            --write-out '%{http_code}' \
+            https://openrouter.ai/api/v1/key \
+            -H "Authorization: Bearer ${OPENROUTER_API_KEY}")"
+
+          if [ "${status}" != "200" ]; then
+            echo "::error::OpenRouter authentication failed with HTTP ${status}"
+            exit 1
+          fi
+
+          echo "OpenRouter authentication succeeded."
