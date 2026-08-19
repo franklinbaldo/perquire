@@ -16,7 +16,7 @@ from litellm import completion
 
 from ..exceptions import ConfigurationError
 from ..providers.rate_limit import get_shared_pacer
-from ..providers.retry import call_with_transient_retries
+from ..providers.retry import EmptyProviderResponse, call_with_transient_retries
 from .base import BaseLLMProvider, LLMProviderError, LLMResponse
 
 logger = logging.getLogger(__name__)
@@ -49,6 +49,7 @@ class OpenRouterProvider(BaseLLMProvider):
         rpm = int(self.config.get("requests_per_minute", DEFAULT_REQUESTS_PER_MINUTE))
         self._pacer = get_shared_pacer("openrouter", rpm)
         self._max_retries = int(self.config.get("max_retries", DEFAULT_MAX_RETRIES))
+        self.transport_attempts = 0
 
     def validate_config(self) -> None:
         if not self._api_key():
@@ -66,16 +67,21 @@ class OpenRouterProvider(BaseLLMProvider):
 
     def _complete(self, prompt: str, **kwargs: Any) -> str:
         def request():
-            return completion(
+            self.transport_attempts += 1
+            response = completion(
                 model=self.model,
                 messages=[{"role": "user", "content": prompt}],
                 api_key=self._api_key(),
                 temperature=kwargs.get("temperature", self.config.get("temperature", 0.7)),
                 max_tokens=kwargs.get("max_tokens", self.config.get("max_tokens", 256)),
             )
+            content = response.choices[0].message.content or ""
+            if not content.strip():
+                raise EmptyProviderResponse("OpenRouter returned an empty completion")
+            return content
 
         try:
-            response = call_with_transient_retries(
+            return call_with_transient_retries(
                 request,
                 before_attempt=self._pacer.wait,
                 max_retries=self._max_retries,
@@ -83,8 +89,6 @@ class OpenRouterProvider(BaseLLMProvider):
         except Exception as error:
             logger.exception("OpenRouter completion failed")
             raise LLMProviderError(f"OpenRouter completion failed: {error}") from error
-
-        return response.choices[0].message.content or ""
 
     def generate_response(self, prompt: str, **kwargs: Any) -> LLMResponse:
         content = self._complete(prompt, **kwargs)
@@ -146,4 +150,5 @@ class OpenRouterProvider(BaseLLMProvider):
             "model": self.model,
             "requests_per_minute": self._pacer.requests_per_minute,
             "max_retries": self._max_retries,
+            "transport_attempts": self.transport_attempts,
         }
