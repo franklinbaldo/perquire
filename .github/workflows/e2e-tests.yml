@@ -5,28 +5,84 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
 jobs:
   end-to-end-test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.12'
         cache: 'pip'
-
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -e .
-
     - name: Run E2E Tests
       env:
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      run: python tests/e2e/run_e2e_tests.py
+
+  openrouter-smoke:
+    if: github.event_name == 'push' && contains(github.event.head_commit.message, '[openrouter-smoke]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+        cache: 'pip'
+    - name: Install OpenRouter boundary
       run: |
-        python tests/e2e/run_e2e_tests.py
+        python -m pip install --upgrade pip
+        pip install -e '.[api-openrouter]'
+    - name: Run one-case budget-2 smoke
+      env:
+        OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      run: |
+        test -n "$OPENROUTER_API_KEY" || { echo '::error::OPENROUTER_API_KEY missing'; exit 1; }
+        python -m benchmarks.run_semantic_inversion \
+          --llm-provider openrouter \
+          --embedding-provider openrouter \
+          --limit 1 \
+          --budget 2 \
+          --output benchmark_results/openrouter_smoke.json
+    - name: Build smoke summary
+      if: success()
+      run: |
+        python - <<'PY'
+        import json
+        from pathlib import Path
+        d = json.loads(Path('benchmark_results/openrouter_smoke.json').read_text())
+        lines = ['### OpenRouter live smoke: PASS', '', '| method | best similarity | LLM calls | evaluations |', '|---|---:|---:|---:|']
+        for r in d['records']:
+            lines.append(f"| `{r['method']}` | {r['best_target_similarity']:.6f} | {r['llm_calls']} | {r['evaluations']} |")
+        Path('smoke_summary.md').write_text('\n'.join(lines) + '\n')
+        PY
+    - name: Comment PASS on PR 32
+      if: success()
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: gh pr comment 32 --repo "$GITHUB_REPOSITORY" --body-file smoke_summary.md
+    - name: Comment FAIL on PR 32
+      if: failure()
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: gh pr comment 32 --repo "$GITHUB_REPOSITORY" --body "### OpenRouter live smoke: FAIL\n\nRun: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+    - name: Upload smoke artifact
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: openrouter-live-smoke
+        path: benchmark_results/openrouter_smoke.json
+        if-no-files-found: warn
+        retention-days: 30
