@@ -23,17 +23,22 @@ class StubEmbedder:
 class StubLLM:
     def __init__(self):
         self.prompts = []
+        self.request_ids = []
         self.transport_attempts = 0
 
-    def generate_response(self, prompt):
+    def generate_response(self, prompt, **kwargs):
         self.prompts.append(prompt)
+        self.request_ids.append(kwargs.get("cache_request_id"))
         self.transport_attempts += 1
         count = next((int(w) for w in prompt.split() if w.isdigit()), 1)
         content = "\n".join(f"candidate {index}" for index in range(count))
         return type("Response", (), {"content": content})()
 
-    def generate_questions(self, current_description, target_similarity, phase, previous_questions):
+    def generate_questions(
+        self, current_description, target_similarity, phase, previous_questions, **kwargs
+    ):
         self.prompts.append(f"{phase}:{current_description}")
+        self.request_ids.append(kwargs.get("cache_request_id"))
         self.transport_attempts += 1
         return [f"{phase} candidate {len(previous_questions)}"]
 
@@ -93,6 +98,14 @@ def test_hidden_source_text_never_reaches_a_proposer(executed_case):
     assert all(case.source_text not in prompt for prompt in llm.prompts)
 
 
+def test_every_llm_request_has_a_stable_case_scoped_replay_identity(executed_case):
+    case, llm, _, _, _, _ = executed_case
+    assert llm.request_ids
+    assert all(request_id and request_id.startswith(f"{case.case_id}:") for request_id in llm.request_ids)
+    assert len(llm.request_ids) == len(set(llm.request_ids))
+    assert all(case.source_text not in request_id for request_id in llm.request_ids)
+
+
 def test_candidate_parsing_keeps_leading_digits():
     from benchmarks.run_semantic_inversion import parse_candidates
 
@@ -103,8 +116,9 @@ def test_candidate_parsing_keeps_leading_digits():
 
 def test_independent_generation_fills_partial_model_output_to_budget():
     class PartialLLM(StubLLM):
-        def generate_response(self, prompt):
+        def generate_response(self, prompt, **kwargs):
             self.prompts.append(prompt)
+            self.request_ids.append(kwargs.get("cache_request_id"))
             self.transport_attempts += 1
             return type("Response", (), {"content": f"candidate {self.transport_attempts}"})()
 
