@@ -34,6 +34,7 @@ class OpenRouterEmbeddingProvider(BaseEmbeddingProvider):
         rpm = int(self.config.get("requests_per_minute", DEFAULT_REQUESTS_PER_MINUTE))
         self._pacer = get_shared_pacer("openrouter", rpm)
         self._max_retries = int(self.config.get("max_retries", DEFAULT_MAX_RETRIES))
+        self.transport_attempts = 0
         self._dimensions: int | None = None
 
     def validate_config(self) -> None:
@@ -52,6 +53,7 @@ class OpenRouterEmbeddingProvider(BaseEmbeddingProvider):
 
     def _embed(self, texts: list[str]) -> list[np.ndarray]:
         def request():
+            self.transport_attempts += 1
             return embedding(model=self.model, input=texts, api_key=self._api_key())
 
         try:
@@ -107,4 +109,5 @@ class OpenRouterEmbeddingProvider(BaseEmbeddingProvider):
             "dimensions": self._dimensions,
             "requests_per_minute": self._pacer.requests_per_minute,
             "max_retries": self._max_retries,
+            "transport_attempts": self.transport_attempts,
         }
