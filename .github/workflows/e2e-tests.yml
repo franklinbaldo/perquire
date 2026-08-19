@@ -3,6 +3,7 @@ name: Perquire E2E Tests
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -12,6 +13,7 @@ permissions:
 
 jobs:
   end-to-end-test:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -32,15 +34,26 @@ jobs:
       run: python tests/e2e/run_e2e_tests.py
 
   openrouter-smoke:
-    if: github.event_name == 'push' && contains(github.event.head_commit.message, '[openrouter-smoke]')
+    if: >-
+      (github.event_name == 'push' && contains(github.event.head_commit.message, '[openrouter-smoke]')) ||
+      (github.event_name == 'pull_request' && github.head_ref == 'ci/openrouter-visible-live-smoke' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      PERQUIRE_CACHE_DIR: .cache/perquire
     steps:
     - uses: actions/checkout@v4
     - uses: actions/setup-python@v5
       with:
         python-version: '3.12'
         cache: 'pip'
+    - name: Restore accumulated embedding cache
+      uses: actions/cache@v4
+      with:
+        path: .cache/perquire
+        key: perquire-embeddings-v1-${{ runner.os }}-${{ github.run_id }}
+        restore-keys: |
+          perquire-embeddings-v1-${{ runner.os }}-
     - name: Install OpenRouter boundary
       run: |
         python -m pip install --upgrade pip
@@ -63,26 +76,31 @@ jobs:
         import json
         from pathlib import Path
         d = json.loads(Path('benchmark_results/openrouter_smoke.json').read_text())
-        lines = ['### OpenRouter live smoke: PASS', '', '| method | best similarity | LLM calls | evaluations |', '|---|---:|---:|---:|']
+        assert d['case_count'] == 1
+        assert d['budget'] == 2
+        assert len(d['records']) == 3
+        assert {r['evaluations'] for r in d['records']} == {2}
+        cache = d.get('embedding_cache', {})
+        lines = [
+            '### OpenRouter live smoke: PASS',
+            '',
+            f"Embedding cache: {cache.get('cache_hits', 0)} hits / {cache.get('cache_misses', 0)} misses / {cache.get('cache_writes', 0)} writes",
+            '',
+            '| method | best similarity | LLM calls | evaluations |',
+            '|---|---:|---:|---:|',
+        ]
         for r in d['records']:
             lines.append(f"| `{r['method']}` | {r['best_target_similarity']:.6f} | {r['llm_calls']} | {r['evaluations']} |")
         Path('smoke_summary.md').write_text('\n'.join(lines) + '\n')
+        print('\n'.join(lines))
         PY
-    - name: Comment PASS on PR 32
-      if: success()
-      env:
-        GH_TOKEN: ${{ github.token }}
-      run: gh pr comment 32 --repo "$GITHUB_REPOSITORY" --body-file smoke_summary.md
-    - name: Comment FAIL on PR 32
-      if: failure()
-      env:
-        GH_TOKEN: ${{ github.token }}
-      run: gh pr comment 32 --repo "$GITHUB_REPOSITORY" --body "### OpenRouter live smoke: FAIL\n\nRun: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
     - name: Upload smoke artifact
       if: always()
       uses: actions/upload-artifact@v4
       with:
         name: openrouter-live-smoke
-        path: benchmark_results/openrouter_smoke.json
+        path: |
+          benchmark_results/openrouter_smoke.json
+          smoke_summary.md
         if-no-files-found: warn
         retention-days: 30
