@@ -55,10 +55,14 @@ def llm(monkeypatch):
 
 
 @pytest.fixture
-def embedder(monkeypatch):
+def embedder(monkeypatch, tmp_path):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
     return OpenRouterEmbeddingProvider(
-        config={"model": "nvidia/nemotron-3-embed-1b:free", "requests_per_minute": 0}
+        config={
+            "model": "nvidia/nemotron-3-embed-1b:free",
+            "requests_per_minute": 0,
+            "cache_path": tmp_path / "embeddings.sqlite3",
+        }
     )
 
 
@@ -113,6 +117,35 @@ def test_embedding_model_is_namespaced_to_openrouter(embedder, monkeypatch):
     assert call.kwargs["model"] == "openrouter/nvidia/nemotron-3-embed-1b:free"
 
 
+def test_embedding_cache_skips_repeat_transport(monkeypatch, tmp_path):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    path = tmp_path / "persisted.sqlite3"
+    call = _embedding_returning([0.25, 0.75])
+    monkeypatch.setattr("perquire.embeddings.openrouter_embeddings.embedding", call)
+
+    first = OpenRouterEmbeddingProvider(
+        config={"requests_per_minute": 0, "cache_path": path}
+    )
+    first_result = first.embed_text("reuse me")
+    assert first.transport_attempts == 1
+    assert first.cache_misses == 1
+    assert first.cache_writes == 1
+
+    def forbidden(**kwargs):
+        raise AssertionError("transport must not run on a persisted cache hit")
+
+    monkeypatch.setattr("perquire.embeddings.openrouter_embeddings.embedding", forbidden)
+    second = OpenRouterEmbeddingProvider(
+        config={"requests_per_minute": 0, "cache_path": path}
+    )
+    second_result = second.embed_text("reuse me")
+
+    np.testing.assert_allclose(second_result.embedding, first_result.embedding)
+    assert second.transport_attempts == 0
+    assert second.cache_hits == 1
+    assert second.cache_misses == 0
+
+
 def test_pacer_waits_to_respect_the_configured_rate():
     now = [0.0]
     slept: list[float] = []
@@ -132,13 +165,17 @@ def test_pacer_disabled_never_sleeps():
     assert slept == []
 
 
-def test_llm_and_embeddings_share_the_same_openrouter_quota(monkeypatch):
+def test_llm_and_embeddings_share_the_same_openrouter_quota(monkeypatch, tmp_path):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
     llm_provider = OpenRouterProvider(
         config={"model": "openai/gpt-oss-20b:free", "requests_per_minute": 20}
     )
     embedding_provider = OpenRouterEmbeddingProvider(
-        config={"model": "nvidia/nemotron-3-embed-1b:free", "requests_per_minute": 20}
+        config={
+            "model": "nvidia/nemotron-3-embed-1b:free",
+            "requests_per_minute": 20,
+            "cache_path": tmp_path / "embeddings.sqlite3",
+        }
     )
 
     assert llm_provider._pacer is embedding_provider._pacer
@@ -167,12 +204,6 @@ def test_parse_lines_strips_list_markers_but_keeps_leading_digits():
 
 
 def test_pacer_does_not_inflate_waits_when_sleep_returns_early():
-    """A short sleep must not compound into ever-longer waits.
-
-    time.sleep can return early, so the pacer cannot assume the clock advanced
-    by the amount it asked for. Reading a clock that appears to run backwards
-    would otherwise grow every subsequent wait: 3s, 6s, 9s, ...
-    """
     slept: list[float] = []
     pacer = RequestPacer(
         requests_per_minute=20, clock=lambda: 0.0, sleep=lambda seconds: slept.append(seconds)
