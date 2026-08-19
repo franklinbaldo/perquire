@@ -34,7 +34,7 @@ jobs:
           assert perquire.__version__ == "0.2.0"
           PY
       - name: Test core contract
-        run: pytest tests/core tests/convergence tests/cli
+        run: pytest tests/core tests/convergence tests/cli tests/benchmarks
 
   persistence:
     runs-on: ubuntu-latest
