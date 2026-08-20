@@ -9,8 +9,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-from perquire.llm.openrouter_provider import OpenRouterProvider
-
 CONTROL_MODEL = "openai/gpt-oss-20b:free"
 ELIGIBLE_MODELS = (
     "google/gemini-2.5-flash-lite",
@@ -51,6 +49,10 @@ def select_model(results: list[dict[str, Any]]) -> str | None:
 
 
 def probe_model(model: str) -> dict[str, Any]:
+    # Keep the deterministic selection logic importable in the minimal core
+    # environment; the live provider is an optional dependency.
+    from perquire.llm.openrouter_provider import OpenRouterProvider
+
     provider = OpenRouterProvider(
         config={
             "model": model,
