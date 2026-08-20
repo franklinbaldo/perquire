@@ -13,7 +13,7 @@ _PROVIDER_SPECS = {
     "openrouter": (
         ".openrouter_provider",
         "OpenRouterProvider",
-        {"model": "openai/gpt-oss-20b:free"},
+        {"model": "google/gemini-2.5-flash-lite"},
     ),
     "ollama": (".ollama_provider", "OllamaProvider", {"model": "llama2", "base_url": "http://localhost:11434"}),
 }
