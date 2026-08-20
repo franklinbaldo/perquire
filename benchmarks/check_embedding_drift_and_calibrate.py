@@ -11,7 +11,9 @@ it is testing.
 from __future__ import annotations
 
 import argparse
+import importlib.metadata as metadata
 import json
+import platform
 import statistics
 from pathlib import Path
 from typing import Any
@@ -26,6 +28,20 @@ DEFAULT_PARAPHRASES = Path("benchmarks/calibration_paraphrases_v1.jsonl")
 DEFAULT_CASES = Path("benchmarks/cases_v1.jsonl")
 DEFAULT_OUTPUT = Path("benchmark_results/embedding_drift_calibration_v1.json")
 DEFAULT_MIN_CONTROL_COSINE = 0.999999
+ENVIRONMENT_PACKAGES = (
+    "perquire",
+    "litellm",
+    "numpy",
+    "openai",
+    "httpx",
+    "httpcore",
+    "pydantic",
+    "pydantic-core",
+    "pydantic-settings",
+    "aiohttp",
+    "tiktoken",
+    "tokenizers",
+)
 
 
 def load_paraphrases(path: Path) -> dict[str, str]:
@@ -44,11 +60,26 @@ def load_paraphrases(path: Path) -> dict[str, str]:
 
 
 def provider_identity(result: Any) -> str | None:
-    metadata = getattr(result, "metadata", None)
-    if isinstance(metadata, dict):
-        value = metadata.get("upstream_provider")
+    result_metadata = getattr(result, "metadata", None)
+    if isinstance(result_metadata, dict):
+        value = result_metadata.get("upstream_provider")
         return str(value) if value is not None else None
     return None
+
+
+def environment_manifest() -> dict[str, Any]:
+    packages: dict[str, str | None] = {}
+    for package in ENVIRONMENT_PACKAGES:
+        try:
+            packages[package] = metadata.version(package)
+        except metadata.PackageNotFoundError:
+            packages[package] = None
+    return {
+        "python_version": platform.python_version(),
+        "python_implementation": platform.python_implementation(),
+        "platform": platform.platform(),
+        "packages": packages,
+    }
 
 
 def main() -> None:
@@ -96,6 +127,7 @@ def main() -> None:
 
     payload: dict[str, Any] = {
         "diagnostic": "embedding-drift-and-paraphrase-calibration-v1",
+        "environment": environment_manifest(),
         "embedding_model": embedder.model,
         "cache_path": str(embedder._cache.path),
         "cached_target_count": len(cached_targets),
@@ -116,6 +148,7 @@ def main() -> None:
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     if not control_passed:
+        payload["embedding_transport"] = embedder.get_model_info()
         args.output.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
         print(args.output)
         raise SystemExit(
