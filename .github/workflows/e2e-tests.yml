@@ -25,6 +25,7 @@ jobs:
         python-version: '3.12.13'
     - uses: astral-sh/setup-uv@v6
       with:
+        version: '0.12.5'
         enable-cache: true
     - name: Sync dependencies from lock
       run: uv sync --python 3.12.13 --frozen
@@ -48,6 +49,7 @@ jobs:
         python-version: '3.12.13'
     - uses: astral-sh/setup-uv@v6
       with:
+        version: '0.12.5'
         enable-cache: true
     - name: Restore accumulated embedding cache
       uses: actions/cache@v4
