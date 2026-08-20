@@ -72,6 +72,21 @@ Methods are compared under the same maximum number of target similarity evaluati
 
 Cache/replay may avoid purchasing an already observed provider response, but replayed observations are not fresh samples. Logical experimental calls and real transport attempts must remain distinguishable.
 
+## Generation substrate v1
+
+Before observing any 2→32 scaling curve, a target-free reliability probe selected the generation substrate by a criterion independent of adaptive quality. Both eligible candidates completed 12/12 logical calls; the prospectively frozen lower-price tie-break selected `google/gemini-2.5-flash-lite` through OpenRouter. The decision artifact is documented in `docs/openrouter_reliability_probe_v1_result.md`.
+
+For scaling v1:
+
+- generation model is frozen to `google/gemini-2.5-flash-lite` across all methods, budgets and replicates;
+- temperature remains `0.7` and the existing bounded retry policy remains `max_retries=2`;
+- a required generation that exhausts retries invalidates the experimental cell;
+- an invalid cell remains counted as invalid and may not be erased by silent model switching or rerun-until-success;
+- exact replay may preserve already observed provider responses but is not a fresh stochastic sample;
+- if fewer than 95% of preregistered cells are valid, v1 fails its operational-reliability gate and no clean scaling claim is made from the surviving subset.
+
+Changing the generation model or failure policy after observing scaling results defines a new experiment version rather than repairing v1 retrospectively.
+
 ## Evaluation
 
 The optimizer's target cosine is necessary but not sufficient. Benchmark reports must distinguish:
