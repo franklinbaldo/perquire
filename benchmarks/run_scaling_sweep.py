@@ -9,9 +9,13 @@ sweep. Hidden source text remains available only to target construction.
 from __future__ import annotations
 
 import argparse
+import importlib.metadata as metadata
 import json
 import math
+import os
+import platform
 import statistics
+import subprocess
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -31,6 +35,20 @@ from benchmarks.semantic_inversion import BenchmarkCase
 
 PREREGISTERED_BUDGETS = (2, 4, 8, 16, 32)
 MIN_VALID_FRACTION = 0.95
+ENVIRONMENT_PACKAGES = (
+    "perquire",
+    "litellm",
+    "numpy",
+    "openai",
+    "httpx",
+    "httpcore",
+    "pydantic",
+    "pydantic-core",
+    "pydantic-settings",
+    "aiohttp",
+    "tiktoken",
+    "tokenizers",
+)
 
 
 def parse_budgets(raw: str) -> tuple[int, ...]:
@@ -43,6 +61,33 @@ def parse_budgets(raw: str) -> tuple[int, ...]:
     if len(set(budgets)) != len(budgets):
         raise argparse.ArgumentTypeError("budgets must be unique")
     return tuple(sorted(budgets))
+
+
+def environment_manifest() -> dict[str, Any]:
+    """Record enough software provenance to detect drift between frozen cells."""
+    git_sha = os.getenv("GITHUB_SHA")
+    if not git_sha:
+        try:
+            git_sha = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], text=True, stderr=subprocess.DEVNULL
+            ).strip()
+        except (OSError, subprocess.CalledProcessError):
+            git_sha = None
+
+    packages: dict[str, str | None] = {}
+    for package in ENVIRONMENT_PACKAGES:
+        try:
+            packages[package] = metadata.version(package)
+        except metadata.PackageNotFoundError:
+            packages[package] = None
+
+    return {
+        "git_sha": git_sha,
+        "python_version": platform.python_version(),
+        "python_implementation": platform.python_implementation(),
+        "platform": platform.platform(),
+        "packages": packages,
+    }
 
 
 def best_so_far(observations: list[dict[str, Any]]) -> list[dict[str, float | int]]:
@@ -316,6 +361,7 @@ def main() -> None:
     embedding_info = embedder.get_model_info() if hasattr(embedder, "get_model_info") else {}
     payload = {
         "benchmark": "semantic-inversion-scaling-v1",
+        "environment": environment_manifest(),
         "preregistered_budgets": list(PREREGISTERED_BUDGETS),
         "budgets": list(budgets),
         "replicates": args.replicates,
