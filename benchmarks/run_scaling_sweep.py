@@ -184,7 +184,13 @@ def main() -> None:
         "replicates": args.replicates,
         "case_count": len(cases),
         "llm_provider": args.llm_provider,
+        "llm_model": llm_info.get("model"),
         "embedding_provider": args.embedding_provider,
+        "embedding_model": embedding_info.get("model"),
+        "generation_config": {
+            "requests_per_minute": llm_info.get("requests_per_minute"),
+            "max_retries": llm_info.get("max_retries"),
+        },
         "budget_unit": "target_similarity_evaluation",
         "replicate_semantics": (
             "each case/budget/replicate has a distinct LLM replay identity; cache hits replay only the exact same experimental cell"
