@@ -21,8 +21,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-      - name: Install lightweight template test dependencies
-        run: python -m pip install pytest Jinja2
+          python-version: "3.12.13"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.5'
+          enable-cache: true
+      - name: Sync web boundary from lock
+        run: uv sync --python 3.12.13 --extra web --frozen
       - name: Render and inspect the web surface
-        run: pytest -q tests/test_web_surface.py
+        run: uv run --python 3.12.13 pytest -q tests/test_web_surface.py
