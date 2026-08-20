@@ -1,0 +1,147 @@
+name: OpenRouter scaling v1 primary
+
+on:
+  pull_request:
+
+jobs:
+  shard:
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.head_ref == 'experiment/scaling-v1-primary' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        case_line: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
+        budget: [2, 4, 8, 16, 32]
+    env:
+      PERQUIRE_CACHE_DIR: .cache/perquire
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Restore accumulated v1 cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .cache/perquire
+          key: perquire-scaling-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.case_line }}-${{ matrix.budget }}
+          restore-keys: |
+            perquire-scaling-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}-
+            perquire-scaling-v1-${{ runner.os }}-
+            perquire-embeddings-v1-${{ runner.os }}-
+
+      - name: Require OpenRouter credential
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          test -n "${OPENROUTER_API_KEY}" || { echo '::error::OPENROUTER_API_KEY missing'; exit 1; }
+
+      - name: Install frozen OpenRouter boundary
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[api-openrouter]'
+
+      - name: Select frozen case
+        run: |
+          sed -n '${{ matrix.case_line }}p' benchmarks/cases_v1.jsonl > /tmp/perquire-case.jsonl
+          test "$(wc -l < /tmp/perquire-case.jsonl)" -eq 1
+
+      - name: Run frozen scaling shard
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          python -m benchmarks.run_scaling_sweep \
+            --cases /tmp/perquire-case.jsonl \
+            --llm-provider openrouter \
+            --embedding-provider openrouter \
+            --budgets '${{ matrix.budget }}' \
+            --replicates 3 \
+            --output benchmark_results/scaling-v1-case-${{ matrix.case_line }}-budget-${{ matrix.budget }}.json
+
+      - name: Validate shard identity
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = next(Path('benchmark_results').glob('scaling-v1-case-*.json'))
+          data = json.loads(path.read_text())
+          assert data['case_count'] == 1
+          assert data['replicates'] == 3
+          assert data['budgets'] == [${{ matrix.budget }}]
+          assert data['llm_model'] == 'openrouter/google/gemini-2.5-flash-lite'
+          assert data['generation_config']['max_retries'] == 2
+          assert len(data['records']) == 9
+          assert data['validity']['expected_cells'] == 9
+          print('SCALING_V1_SHARD_OK', data['validity'])
+          PY
+
+      - name: Save accumulated v1 cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .cache/perquire
+          key: perquire-scaling-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.case_line }}-${{ matrix.budget }}
+
+      - name: Upload shard evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scaling-v1-shard-${{ matrix.case_line }}-${{ matrix.budget }}
+          path: benchmark_results/scaling-v1-case-${{ matrix.case_line }}-budget-${{ matrix.budget }}.json
+          if-no-files-found: error
+          retention-days: 30
+
+  aggregate:
+    if: always()
+    needs: shard
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download all completed shards
+        uses: actions/download-artifact@v4
+        with:
+          pattern: scaling-v1-shard-*
+          path: benchmark_results/shards
+      - name: Merge canonical primary artifact
+        run: |
+          python -m benchmarks.merge_scaling_shards benchmark_results/shards \
+            --output benchmark_results/openrouter_scaling_v1_primary.json
+      - name: Validate primary shape and reliability gate
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path('benchmark_results/openrouter_scaling_v1_primary.json').read_text())
+          assert data['budgets'] == [2, 4, 8, 16, 32]
+          assert data['replicates'] == 3
+          assert data['case_count'] == 24
+          assert data['llm_model'] == 'openrouter/google/gemini-2.5-flash-lite'
+          assert data['validity']['expected_cells'] == 1080
+          assert data['validity']['observed_cells'] == 1080
+          assert data['validity']['missing_cells'] == 0
+          print('SCALING_V1_PRIMARY_COMPLETE')
+          print('validity', data['validity'])
+          for method, summary in sorted(data['summary']['methods'].items()):
+              print(method, summary['points'])
+          PY
+      - name: Upload primary scaling artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: openrouter-scaling-v1-primary
+          path: benchmark_results/openrouter_scaling_v1_primary.json
+          if-no-files-found: error
+          retention-days: 90
