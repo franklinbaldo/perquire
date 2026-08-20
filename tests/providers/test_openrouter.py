@@ -40,10 +40,13 @@ def _completion_returning(content: str):
     return _call
 
 
-def _embedding_returning(vector: list[float]):
+def _embedding_returning(vector: list[float], *, provider: str | None = None):
     def _call(**kwargs):
         _call.kwargs = kwargs
-        return {"data": [{"embedding": vector}], "model": "openrouter/test-embed"}
+        response = {"data": [{"embedding": vector}], "model": "openrouter/test-embed"}
+        if provider is not None:
+            response["provider"] = provider
+        return response
 
     return _call
 
@@ -117,6 +120,30 @@ def test_embedding_model_is_namespaced_to_openrouter(embedder, monkeypatch):
     assert call.kwargs["model"] == "openrouter/nvidia/nemotron-3-embed-1b:free"
 
 
+def test_embedding_records_served_upstream_when_response_exposes_it(embedder, monkeypatch):
+    monkeypatch.setattr(
+        "perquire.embeddings.openrouter_embeddings.embedding",
+        _embedding_returning([1.0, 0.0], provider="ExampleBackend"),
+    )
+    embedder.embed_text("served upstream")
+    info = embedder.get_model_info()
+    assert info["served_upstream_providers"] == ["ExampleBackend"]
+    assert info["served_upstream_provider_counts"] == {"ExampleBackend": 1}
+    assert info["successful_responses_without_upstream_provider"] == 0
+
+
+def test_embedding_marks_unobservable_upstream_without_guessing(embedder, monkeypatch):
+    monkeypatch.setattr(
+        "perquire.embeddings.openrouter_embeddings.embedding",
+        _embedding_returning([1.0, 0.0]),
+    )
+    embedder.embed_text("unknown upstream")
+    info = embedder.get_model_info()
+    assert info["served_upstream_providers"] == []
+    assert info["successful_responses_without_upstream_provider"] == 1
+    assert info["last_served_upstream_provider"] is None
+
+
 def test_embedding_cache_skips_repeat_transport(monkeypatch, tmp_path):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
     path = tmp_path / "persisted.sqlite3"
@@ -144,6 +171,32 @@ def test_embedding_cache_skips_repeat_transport(monkeypatch, tmp_path):
     assert second.transport_attempts == 0
     assert second.cache_hits == 1
     assert second.cache_misses == 0
+
+
+def test_uncached_embedding_bypasses_cache_without_overwriting_it(monkeypatch, tmp_path):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    path = tmp_path / "persisted.sqlite3"
+    responses = iter(
+        [
+            {"data": [{"embedding": [1.0, 0.0]}], "provider": "OldBackend"},
+            {"data": [{"embedding": [0.0, 1.0]}], "provider": "NewBackend"},
+        ]
+    )
+
+    def call(**kwargs):
+        return next(responses)
+
+    monkeypatch.setattr("perquire.embeddings.openrouter_embeddings.embedding", call)
+    provider = OpenRouterEmbeddingProvider(config={"requests_per_minute": 0, "cache_path": path})
+    cached = provider.embed_text("same text")
+    fresh = provider.embed_text_uncached("same text")
+    still_cached = provider.cached_embedding("same text")
+
+    np.testing.assert_allclose(cached.embedding, [1.0, 0.0])
+    np.testing.assert_allclose(fresh.embedding, [0.0, 1.0])
+    np.testing.assert_allclose(still_cached, [1.0, 0.0])
+    assert fresh.metadata["cache_status"] == "bypass"
+    assert fresh.metadata["upstream_provider"] == "NewBackend"
 
 
 def test_pacer_waits_to_respect_the_configured_rate():

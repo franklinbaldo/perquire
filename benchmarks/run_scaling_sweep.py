@@ -63,8 +63,8 @@ def parse_budgets(raw: str) -> tuple[int, ...]:
     return tuple(sorted(budgets))
 
 
-def environment_manifest() -> dict[str, Any]:
-    """Record enough software provenance to detect drift between frozen cells."""
+def environment_manifest(embedding_info: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Record software provenance plus observable remote embedding routing metadata."""
     git_sha = os.getenv("GITHUB_SHA")
     if not git_sha:
         try:
@@ -81,13 +81,30 @@ def environment_manifest() -> dict[str, Any]:
         except metadata.PackageNotFoundError:
             packages[package] = None
 
-    return {
+    manifest: dict[str, Any] = {
         "git_sha": git_sha,
         "python_version": platform.python_version(),
         "python_implementation": platform.python_implementation(),
         "platform": platform.platform(),
         "packages": packages,
     }
+    if embedding_info:
+        manifest["embedding_transport"] = {
+            "router": embedding_info.get("provider"),
+            "model": embedding_info.get("model"),
+            "served_upstream_providers": embedding_info.get("served_upstream_providers", []),
+            "served_upstream_provider_counts": embedding_info.get(
+                "served_upstream_provider_counts", {}
+            ),
+            "successful_responses_without_upstream_provider": embedding_info.get(
+                "successful_responses_without_upstream_provider", 0
+            ),
+            "upstream_provider_note": (
+                "best-effort response metadata only; null/empty means the OpenRouter/LiteLLM "
+                "embedding response did not expose the served upstream, not that routing was fixed"
+            ),
+        }
+    return manifest
 
 
 def best_so_far(observations: list[dict[str, Any]]) -> list[dict[str, float | int]]:
@@ -361,7 +378,7 @@ def main() -> None:
     embedding_info = embedder.get_model_info() if hasattr(embedder, "get_model_info") else {}
     payload = {
         "benchmark": "semantic-inversion-scaling-v1",
-        "environment": environment_manifest(),
+        "environment": environment_manifest(embedding_info),
         "preregistered_budgets": list(PREREGISTERED_BUDGETS),
         "budgets": list(budgets),
         "replicates": args.replicates,
