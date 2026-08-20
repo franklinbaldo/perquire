@@ -1,13 +1,12 @@
 name: OpenRouter reliability probe v1
 
+# The v1 decision run is already captured in Actions artifacts. Keep the probe
+# manually reproducible without re-running it on every follow-up commit.
 on:
-  pull_request:
+  workflow_dispatch:
 
 jobs:
   probe:
-    if: >-
-      github.event.pull_request.head.ref == 'research/openrouter-reliability-probe-v1' &&
-      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
