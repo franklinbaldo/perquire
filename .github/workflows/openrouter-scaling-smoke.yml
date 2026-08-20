@@ -1,0 +1,99 @@
+name: OpenRouter scaling smoke
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  scaling-smoke:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && github.head_ref == 'experiment/openrouter-scaling-smoke-v2' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PERQUIRE_CACHE_DIR: .cache/perquire
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Restore accumulated scaling-smoke cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .cache/perquire
+          key: perquire-scaling-smoke-v2-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            perquire-scaling-smoke-v2-${{ runner.os }}-${{ github.run_id }}-
+            perquire-embeddings-v1-${{ runner.os }}-
+            perquire-scaling-smoke-v2-${{ runner.os }}-
+
+      - name: Require OpenRouter credential
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          test -n "${OPENROUTER_API_KEY}" || { echo '::error::OPENROUTER_API_KEY missing'; exit 1; }
+
+      - name: Install OpenRouter boundary
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[api-openrouter]'
+
+      - name: Run multi-budget multi-replicate smoke
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          python -m benchmarks.run_scaling_sweep \
+            --llm-provider openrouter \
+            --embedding-provider openrouter \
+            --limit 1 \
+            --budgets 2,4 \
+            --replicates 2 \
+            --output benchmark_results/openrouter_scaling_smoke.json
+
+      - name: Validate scaling artifact
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path('benchmark_results/openrouter_scaling_smoke.json')
+          data = json.loads(path.read_text())
+          assert data['budgets'] == [2, 4]
+          assert data['replicates'] == 2
+          assert data['case_count'] == 1
+          assert data['llm_provider'] == 'openrouter'
+          assert data['llm_model'] == 'openrouter/google/gemini-2.5-flash-lite'
+          assert data['generation_config']['max_retries'] == 2
+          assert len(data['records']) == 12
+          for record in data['records']:
+              assert record['budget'] in (2, 4)
+              assert record['replicate'] in (0, 1)
+              assert len(record['best_so_far']) == record['budget']
+              assert record['evaluations'] == record['budget']
+          assert set(data['summary']['methods']) == {
+              'adaptive_perquire',
+              'independent_best_of_n',
+              'mutation_hill_climber',
+          }
+          print('SCALING_SMOKE_OK')
+          PY
+
+      - name: Save partial scaling-smoke cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .cache/perquire
+          key: perquire-scaling-smoke-v2-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Upload auditable scaling evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: openrouter-scaling-smoke-v2
+          path: benchmark_results/openrouter_scaling_smoke.json
+          if-no-files-found: warn
+          retention-days: 30
