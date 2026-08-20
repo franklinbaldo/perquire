@@ -21,7 +21,6 @@ from typing import Any
 import numpy as np
 
 from benchmarks.run_semantic_inversion import load_cases
-from perquire.embeddings.openrouter_embeddings import OpenRouterEmbeddingProvider
 from perquire.embeddings.utils import cosine_similarity
 
 DEFAULT_PARAPHRASES = Path("benchmarks/calibration_paraphrases_v1.jsonl")
@@ -83,6 +82,10 @@ def environment_manifest() -> dict[str, Any]:
 
 
 def main() -> None:
+    # Keep importing this optional provider inside the live entrypoint so merely
+    # importing fixture helpers does not require the api-openrouter extra.
+    from perquire.embeddings.openrouter_embeddings import OpenRouterEmbeddingProvider
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--cases", type=Path, default=DEFAULT_CASES)
     parser.add_argument("--paraphrases", type=Path, default=DEFAULT_PARAPHRASES)
