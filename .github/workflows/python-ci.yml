@@ -19,6 +19,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - uses: astral-sh/setup-uv@v6
         with:
+          version: '0.12.5'
           enable-cache: true
       - name: Sync minimal core from lock
         run: uv sync --python '${{ matrix.python-version }}' --frozen
@@ -45,6 +46,7 @@ jobs:
           python-version: "3.12.13"
       - uses: astral-sh/setup-uv@v6
         with:
+          version: '0.12.5'
           enable-cache: true
       - name: Sync persistence boundary from lock
         run: uv sync --python 3.12.13 --extra persistence --frozen
@@ -60,6 +62,7 @@ jobs:
           python-version: "3.12.13"
       - uses: astral-sh/setup-uv@v6
         with:
+          version: '0.12.5'
           enable-cache: true
       - name: Sync OpenRouter boundary from lock
         run: uv sync --python 3.12.13 --extra api-openrouter --frozen
@@ -75,6 +78,7 @@ jobs:
           python-version: "3.12.13"
       - uses: astral-sh/setup-uv@v6
         with:
+          version: '0.12.5'
           enable-cache: true
       - name: Sync web boundary from lock
         run: uv sync --python 3.12.13 --extra web --extra persistence --frozen
