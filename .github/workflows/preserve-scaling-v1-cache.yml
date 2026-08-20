@@ -1,0 +1,54 @@
+name: Preserve scaling v1 cache
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  preserve-cache:
+    if: >-
+      github.head_ref == 'experiment/scaling-v1-primary' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    env:
+      PERQUIRE_CACHE_DIR: .cache/perquire
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore accumulated v1 cache from this PR ref
+        uses: actions/cache/restore@v4
+        with:
+          path: .cache/perquire
+          key: preserve-scaling-v1-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            perquire-scaling-v1-${{ runner.os }}-
+            perquire-embeddings-v1-${{ runner.os }}-
+
+      - name: Verify restored embedding cache
+        run: |
+          test -f .cache/perquire/embeddings.sqlite3 || { echo '::error::Embedding cache is missing from the scaling-v1 PR scope'; exit 1; }
+          python - <<'PY'
+          import sqlite3
+          from pathlib import Path
+
+          path = Path('.cache/perquire/embeddings.sqlite3')
+          with sqlite3.connect(path) as db:
+              result = db.execute('PRAGMA integrity_check').fetchone()[0]
+              if result != 'ok':
+                  raise SystemExit(f'cache integrity check failed: {result}')
+              legacy = db.execute('SELECT COUNT(*) FROM embeddings').fetchone()[0]
+              tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+          print('SCALING_V1_CACHE_RESTORED', {'bytes': path.stat().st_size, 'legacy_embeddings': legacy, 'tables': sorted(tables)})
+          PY
+
+      - name: Upload durable v1 cache snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: scaling-v1-cache-snapshot-${{ github.run_id }}
+          path: .cache/perquire
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 90
