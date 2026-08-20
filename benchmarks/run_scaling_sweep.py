@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Run the preregistered semantic-inversion scaling sweep.
 
-Each (case, budget, replicate) receives a distinct replay identity so cached
-provider observations cannot masquerade as fresh stochastic replicates. The
-hidden source text remains available only to target-embedding construction.
+Each (case, budget, replicate, method) is an experimental cell. Provider failure
+invalidates only that cell; it never disappears and never aborts the remaining
+sweep. Hidden source text remains available only to target construction.
 """
 
 from __future__ import annotations
@@ -19,10 +19,18 @@ from typing import Any
 from perquire.embeddings import embedding_registry
 from perquire.llm import provider_registry as llm_registry
 
-from benchmarks.run_semantic_inversion import load_cases, run_case, trace_to_dict
+from benchmarks.run_semantic_inversion import (
+    METHODS,
+    MethodExecutionError,
+    load_cases,
+    prepare_target,
+    run_method,
+    trace_to_dict,
+)
 from benchmarks.semantic_inversion import BenchmarkCase
 
 PREREGISTERED_BUDGETS = (2, 4, 8, 16, 32)
+MIN_VALID_FRACTION = 0.95
 
 
 def parse_budgets(raw: str) -> tuple[int, ...]:
@@ -47,8 +55,11 @@ def best_so_far(observations: list[dict[str, Any]]) -> list[dict[str, float | in
 
 
 def summarize(records: list[dict[str, Any]], budgets: tuple[int, ...]) -> dict[str, Any]:
+    """Summarize valid observations only; invalid cells remain explicit outside curves."""
     grouped: dict[tuple[str, int], list[float]] = defaultdict(list)
     for record in records:
+        if record.get("status", "valid") != "valid":
+            continue
         grouped[(record["method"], int(record["budget"]))].append(
             float(record["best_target_similarity"])
         )
@@ -62,7 +73,7 @@ def summarize(records: list[dict[str, Any]], budgets: tuple[int, ...]) -> dict[s
         by_method[method].append(
             {
                 "budget": budget,
-                "n": len(values),
+                "n_valid": len(values),
                 "mean_best_target_similarity": mean,
                 "median_best_target_similarity": median,
                 "stdev_best_target_similarity": stdev,
@@ -103,8 +114,163 @@ def summarize(records: list[dict[str, Any]], budgets: tuple[int, ...]) -> dict[s
         "budgets": list(budgets),
         "methods": method_summaries,
         "uncertainty_note": (
-            "stdev/stderr summarize replicate-and-case dispersion; raw paired records remain canonical"
+            "summaries exclude invalid cells; validity counts are mandatory context and raw paired records remain canonical"
         ),
+    }
+
+
+def _usage_fields(usage: dict[str, int] | None = None) -> dict[str, int]:
+    usage = usage or {}
+    return {
+        "llm_calls": usage.get("llm_calls", 0),
+        "llm_transport_attempts": usage.get("llm_transport_attempts", 0),
+        "embedding_transport_attempts": usage.get("embedding_transport_attempts", 0),
+        "generated_candidates": usage.get("generated_candidates", 0),
+        "empty_generations": usage.get("empty_generations", 0),
+    }
+
+
+def invalid_record(
+    *,
+    case: BenchmarkCase,
+    replay_case_id: str,
+    budget: int,
+    replicate: int,
+    method: str,
+    error: Exception,
+    stage: str,
+    usage: dict[str, int] | None = None,
+) -> dict[str, Any]:
+    """Serialize only stable error class/stage, never provider payload or secret-bearing text."""
+    return {
+        "case_id": case.case_id,
+        "replay_case_id": replay_case_id,
+        "domain": case.domain,
+        "budget": budget,
+        "replicate": replicate,
+        "method": method,
+        "status": "invalid",
+        "error_stage": stage,
+        "error_type": type(error).__name__,
+        "best_target_similarity": None,
+        "evaluations": 0,
+        **_usage_fields(usage),
+        "observations": [],
+        "best_so_far": [],
+    }
+
+
+def execute_sweep(
+    *,
+    cases: list[BenchmarkCase],
+    budgets: tuple[int, ...],
+    replicates: int,
+    llm: Any,
+    embedder: Any,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Execute every cell independently and preserve failures as first-class records."""
+    records: list[dict[str, Any]] = []
+    case_overheads: list[dict[str, Any]] = []
+
+    for budget in budgets:
+        for replicate in range(replicates):
+            for case in cases:
+                replay_case = BenchmarkCase(
+                    case_id=f"{case.case_id}:budget:{budget}:replicate:{replicate}",
+                    domain=case.domain,
+                    source_text=case.source_text,
+                )
+                target_before = int(getattr(embedder, "transport_attempts", 0))
+                try:
+                    target, target_attempts = prepare_target(replay_case, embedder)
+                except Exception as error:
+                    target_attempts = int(getattr(embedder, "transport_attempts", 0)) - target_before
+                    case_overheads.append(
+                        {
+                            "case_id": case.case_id,
+                            "budget": budget,
+                            "replicate": replicate,
+                            "target_embedding_transport_attempts": target_attempts,
+                            "status": "invalid",
+                            "error_type": type(error).__name__,
+                        }
+                    )
+                    for method in METHODS:
+                        records.append(
+                            invalid_record(
+                                case=case,
+                                replay_case_id=replay_case.case_id,
+                                budget=budget,
+                                replicate=replicate,
+                                method=method,
+                                error=error,
+                                stage="target_embedding",
+                            )
+                        )
+                    continue
+
+                case_overheads.append(
+                    {
+                        "case_id": case.case_id,
+                        "budget": budget,
+                        "replicate": replicate,
+                        "target_embedding_transport_attempts": target_attempts,
+                        "status": "valid",
+                    }
+                )
+                for method in METHODS:
+                    try:
+                        trace, meter = run_method(
+                            replay_case,
+                            llm=llm,
+                            embedder=embedder,
+                            budget=budget,
+                            method=method,
+                            target=target,
+                        )
+                    except MethodExecutionError as failure:
+                        records.append(
+                            invalid_record(
+                                case=case,
+                                replay_case_id=replay_case.case_id,
+                                budget=budget,
+                                replicate=replicate,
+                                method=method,
+                                error=failure.error,
+                                stage="method",
+                                usage=failure.usage,
+                            )
+                        )
+                        continue
+
+                    record = trace_to_dict(
+                        replay_case,
+                        trace,
+                        meter.by_method.get(trace.method),
+                    )
+                    record["replay_case_id"] = record["case_id"]
+                    record["case_id"] = case.case_id
+                    record["budget"] = budget
+                    record["replicate"] = replicate
+                    record["status"] = "valid"
+                    record["best_so_far"] = best_so_far(record["observations"])
+                    records.append(record)
+
+    return records, case_overheads
+
+
+def validity_summary(records: list[dict[str, Any]]) -> dict[str, Any]:
+    valid = sum(record.get("status") == "valid" for record in records)
+    total = len(records)
+    invalid = total - valid
+    fraction = valid / total if total else 0.0
+    return {
+        "expected_cells": total,
+        "valid_cells": valid,
+        "invalid_cells": invalid,
+        "valid_fraction": fraction,
+        "minimum_valid_fraction": MIN_VALID_FRACTION,
+        "clean_v1_claim_eligible": fraction >= MIN_VALID_FRACTION,
     }
 
 
@@ -127,7 +293,6 @@ def main() -> None:
         default=Path("benchmark_results/semantic_inversion_scaling_v1.json"),
     )
     args = parser.parse_args()
-
     if args.replicates < 1:
         raise SystemExit("--replicates must be >= 1")
 
@@ -138,42 +303,14 @@ def main() -> None:
     if args.limit is not None:
         cases = cases[: args.limit]
 
-    records: list[dict[str, Any]] = []
-    case_overheads: list[dict[str, Any]] = []
-    for budget in budgets:
-        for replicate in range(args.replicates):
-            for case in cases:
-                replay_case = BenchmarkCase(
-                    case_id=f"{case.case_id}:budget:{budget}:replicate:{replicate}",
-                    domain=case.domain,
-                    source_text=case.source_text,
-                )
-                traces, meter, target_attempts = run_case(
-                    replay_case,
-                    llm=llm,
-                    embedder=embedder,
-                    budget=budget,
-                )
-                case_overheads.append(
-                    {
-                        "case_id": case.case_id,
-                        "budget": budget,
-                        "replicate": replicate,
-                        "target_embedding_transport_attempts": target_attempts,
-                    }
-                )
-                for trace in traces:
-                    record = trace_to_dict(
-                        replay_case,
-                        trace,
-                        meter.by_method.get(trace.method),
-                    )
-                    record["replay_case_id"] = record["case_id"]
-                    record["case_id"] = case.case_id
-                    record["budget"] = budget
-                    record["replicate"] = replicate
-                    record["best_so_far"] = best_so_far(record["observations"])
-                    records.append(record)
+    records, case_overheads = execute_sweep(
+        cases=cases,
+        budgets=budgets,
+        replicates=args.replicates,
+        llm=llm,
+        embedder=embedder,
+    )
+    validity = validity_summary(records)
 
     llm_info = llm.get_model_info() if hasattr(llm, "get_model_info") else {}
     embedding_info = embedder.get_model_info() if hasattr(embedder, "get_model_info") else {}
@@ -193,8 +330,12 @@ def main() -> None:
         },
         "budget_unit": "target_similarity_evaluation",
         "replicate_semantics": (
-            "each case/budget/replicate has a distinct LLM replay identity; cache hits replay only the exact same experimental cell"
+            "each case/budget/replicate/method is a frozen cell; replay of the same identity is not a fresh cell"
         ),
+        "failure_policy": (
+            "an exhausted method cell is invalid and remains in the artifact; it does not abort or get silently rerun"
+        ),
+        "validity": validity,
         "case_overheads": case_overheads,
         "cache": {
             "llm_mode": llm_info.get("cache_mode"),
