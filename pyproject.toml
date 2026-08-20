@@ -48,6 +48,9 @@ api-openrouter = ["litellm==1.97.0"]
 api-ollama = ["llama-index-core>=0.12.45", "llama-index-llms-ollama>=0.6.2"]
 pydantic-ai = ["pydantic-ai>=0.0.14"]
 
+[dependency-groups]
+dev = ["pytest>=8.0"]
+
 [project.scripts]
 perquire = "perquire.cli.main:app"
 
