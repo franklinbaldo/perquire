@@ -1,20 +1,20 @@
 name: Bootstrap uv lock
 
 on:
-  push:
-    branches: [chore/uv-freeze-v1]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: write
 
 jobs:
   lock:
-    if: github.actor != 'github-actions[bot]'
+    if: github.head_ref == 'chore/uv-freeze-v1' && github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: chore/uv-freeze-v1
+          ref: ${{ github.head_ref }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12.13'
@@ -60,4 +60,4 @@ jobs:
           git add uv.lock
           git diff --cached --quiet && exit 0
           git commit -m 'build: lock scaling v1 Python environment'
-          git push origin HEAD:chore/uv-freeze-v1
+          git push origin HEAD:${{ github.head_ref }}
