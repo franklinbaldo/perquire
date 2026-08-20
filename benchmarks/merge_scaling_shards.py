@@ -13,7 +13,15 @@ import json
 from pathlib import Path
 from typing import Any
 
-from benchmarks.run_scaling_sweep import PREREGISTERED_BUDGETS, summarize, validity_summary
+from benchmarks.run_scaling_sweep import (
+    METHODS,
+    PREREGISTERED_BUDGETS,
+    summarize,
+    validity_summary,
+)
+
+PRIMARY_V1_CASE_COUNT = 24
+PRIMARY_V1_REPLICATES = 3
 
 
 def load_shards(root: Path) -> list[dict[str, Any]]:
@@ -75,7 +83,19 @@ def merge_shards(shards: list[dict[str, Any]]) -> dict[str, Any]:
     budgets = tuple(sorted({int(record["budget"]) for record in records}))
     case_ids = sorted({str(record["case_id"]) for record in records})
     validity = validity_summary(records)
-    expected = len(case_ids) * len(budgets) * int(first["replicates"]) * 3
+    primary_shape = (
+        first.get("replicates") == PRIMARY_V1_REPLICATES
+        and budgets == PREREGISTERED_BUDGETS
+    )
+    if primary_shape:
+        expected = (
+            PRIMARY_V1_CASE_COUNT
+            * len(PREREGISTERED_BUDGETS)
+            * PRIMARY_V1_REPLICATES
+            * len(METHODS)
+        )
+    else:
+        expected = len(case_ids) * len(budgets) * int(first["replicates"]) * len(METHODS)
     validity["expected_cells"] = expected
     validity["observed_cells"] = len(records)
     validity["missing_cells"] = max(0, expected - len(records))
