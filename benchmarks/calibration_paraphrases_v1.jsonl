@@ -1,0 +1,24 @@
+{"case_id":"concrete-001","paraphrase":"After the rainfall, a red bike rests against a brick wall."}
+{"case_id":"concrete-002","paraphrase":"An open notebook lies next to a ceramic mug filled with black coffee."}
+{"case_id":"concrete-003","paraphrase":"Before sundown, three fishing vessels make their way back into a small harbor."}
+{"case_id":"emotion-001","paraphrase":"Looking through photos from her childhood made her feel nostalgic."}
+{"case_id":"emotion-002","paraphrase":"He felt relieved after the examination found no serious medical problem."}
+{"case_id":"emotion-003","paraphrase":"After the first test succeeded, the team was optimistic but still cautious."}
+{"case_id":"abstract-001","paraphrase":"The fairness of a process can have value even when the final result is unfavorable."}
+{"case_id":"abstract-002","paraphrase":"Uncertainty ought to be shown openly instead of being concealed by an exact-looking figure."}
+{"case_id":"abstract-003","paraphrase":"A useful model omits unnecessary detail while retaining the structure required for the job."}
+{"case_id":"factual-001","paraphrase":"At standard atmospheric pressure, water turns to ice at zero degrees Celsius."}
+{"case_id":"factual-002","paraphrase":"Earth's largest tropical rainforest is contained within the Amazon River basin."}
+{"case_id":"factual-003","paraphrase":"Brazil moved its capital to Brasilia in 1960."}
+{"case_id":"legal-001","paraphrase":"A court is required to consider arguments that could alter the judgment's outcome."}
+{"case_id":"legal-002","paraphrase":"Later rulings are constrained by binding precedent unless a legally adequate distinction can be made."}
+{"case_id":"legal-003","paraphrase":"Procedural fairness means giving affected parties a genuine chance to present their case."}
+{"case_id":"causal-001","paraphrase":"Heavy rainfall overloaded the drainage system, causing the road to flood."}
+{"case_id":"causal-002","paraphrase":"A smaller search budget cut costs while also lowering the probability of finding a strong candidate."}
+{"case_id":"causal-003","paraphrase":"The experiment failed because its calibration examples did not cover the retained representation space."}
+{"case_id":"compositional-001","paraphrase":"Under a blue umbrella, a small dog in a yellow raincoat waits."}
+{"case_id":"compositional-002","paraphrase":"An old library became a bright coworking area while keeping its original wooden shelves."}
+{"case_id":"compositional-003","paraphrase":"The proposal is cheap and quick to deploy, but auditing it afterward is difficult."}
+{"case_id":"metaphor-001","paraphrase":"While the real crisis burned around them, the committee focused on superficial rearrangements."}
+{"case_id":"metaphor-002","paraphrase":"New evidence revealed a possibility that the original theory had treated as impossible."}
+{"case_id":"metaphor-003","paraphrase":"A tiny untested idea had become surrounded by a disproportionately large project structure."}
