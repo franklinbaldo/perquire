@@ -25,14 +25,15 @@ from benchmarks.semantic_inversion import (
     mutation_hill_climber,
 )
 
+METHODS = ("independent_best_of_n", "mutation_hill_climber", "adaptive_perquire")
+
 
 def load_cases(path: Path) -> list[BenchmarkCase]:
     cases: list[BenchmarkCase] = []
     for line in path.read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
-        item = json.loads(line)
-        cases.append(BenchmarkCase(**item))
+        cases.append(BenchmarkCase(**json.loads(line)))
     return cases
 
 
@@ -111,29 +112,56 @@ class ResourceMeter:
 
     def finish(self, *, llm: Any, embedder: Any) -> None:
         bucket = self._bucket(self.method)
-        bucket["llm_transport_attempts"] += (
-            self._transport_attempts(llm) - self._llm_start
-        )
+        bucket["llm_transport_attempts"] += self._transport_attempts(llm) - self._llm_start
         bucket["embedding_transport_attempts"] += (
             self._transport_attempts(embedder) - self._embedding_start
         )
 
-    def record(self, candidates: list[str]) -> None:
+    def record_call(self) -> None:
+        self._bucket(self.method)["llm_calls"] += 1
+
+    def record_candidates(self, candidates: list[str]) -> None:
         bucket = self._bucket(self.method)
-        bucket["llm_calls"] += 1
         bucket["generated_candidates"] += len(candidates)
         if not candidates:
             bucket["empty_generations"] += 1
 
+    def record(self, candidates: list[str]) -> None:
+        """Backward-compatible helper for tests/callers that record completed calls."""
+        self.record_call()
+        self.record_candidates(candidates)
 
-def run_case(
-    case: BenchmarkCase, *, llm: Any, embedder: Any, budget: int
-) -> tuple[list[SearchTrace], ResourceMeter, int]:
-    target_before = int(getattr(embedder, "transport_attempts", 0))
+
+class MethodExecutionError(RuntimeError):
+    """A method cell failed after recording resource use observed so far."""
+
+    def __init__(self, method: str, error: Exception, usage: dict[str, int]) -> None:
+        super().__init__(f"{method} failed: {error}")
+        self.method = method
+        self.error = error
+        self.usage = dict(usage)
+
+
+def prepare_target(case: BenchmarkCase, embedder: Any) -> tuple[Any, int]:
+    before = int(getattr(embedder, "transport_attempts", 0))
     target = embedder.embed_text(case.source_text).embedding
-    target_embedding_transport_attempts = (
-        int(getattr(embedder, "transport_attempts", 0)) - target_before
-    )
+    attempts = int(getattr(embedder, "transport_attempts", 0)) - before
+    return target, attempts
+
+
+def run_method(
+    case: BenchmarkCase,
+    *,
+    llm: Any,
+    embedder: Any,
+    budget: int,
+    method: str,
+    target: Any,
+) -> tuple[SearchTrace, ResourceMeter]:
+    """Run one frozen comparison method so failure is isolated to one method cell."""
+    if method not in METHODS:
+        raise ValueError(f"unknown semantic inversion method: {method}")
+
     meter = ResourceMeter()
 
     def score(candidate: str) -> float:
@@ -157,9 +185,10 @@ def run_case(
             )
             request_id = f"{case.case_id}:independent_best_of_n:{independent_call}"
             independent_call += 1
+            meter.record_call()
             response = llm.generate_response(prompt, cache_request_id=request_id)
             batch = parse_candidates(response.content, remaining)
-            meter.record(batch)
+            meter.record_candidates(batch)
             for candidate in batch:
                 if candidate not in candidates:
                     candidates.append(candidate)
@@ -176,12 +205,13 @@ def run_case(
             "Generate 1 concise semantic description as an independent initial guess. "
             "Do not assume any feedback about a hidden target. Return one description and no commentary."
         )
+        meter.record_call()
         response = llm.generate_response(
             prompt,
             cache_request_id=f"{case.case_id}:mutation_hill_climber:seed",
         )
         candidates = parse_candidates(response.content, 1)
-        meter.record(candidates)
+        meter.record_candidates(candidates)
         if len(candidates) != 1:
             raise RuntimeError("mutation_hill_climber failed to generate its initial seed")
         return candidates[0]
@@ -195,9 +225,10 @@ def run_case(
         )
         request_id = f"{case.case_id}:mutation_hill_climber:{mutation_call}"
         mutation_call += 1
+        meter.record_call()
         response = llm.generate_response(prompt, cache_request_id=request_id)
         candidates = parse_candidates(response.content, count)
-        meter.record(candidates)
+        meter.record_candidates(candidates)
         if len(candidates) != count:
             raise RuntimeError(
                 f"mutation_hill_climber produced {len(candidates)} candidates; expected {count}"
@@ -208,6 +239,7 @@ def run_case(
 
     def adaptive_propose(best: str | None, best_score: float | None, step: int) -> str:
         phase = "exploration" if step <= max(2, budget // 3) else "refinement"
+        meter.record_call()
         questions = llm.generate_questions(
             current_description=best or "",
             target_similarity=best_score or 0.0,
@@ -215,46 +247,52 @@ def run_case(
             previous_questions=previous,
             cache_request_id=f"{case.case_id}:adaptive_perquire:{step}",
         )
-        meter.record(list(questions))
-        if not questions:
+        candidates = list(questions)
+        meter.record_candidates(candidates)
+        if not candidates:
             raise RuntimeError("adaptive_perquire received no candidate from provider")
-        candidate = questions[0]
+        candidate = candidates[0]
         previous.append(candidate)
         return candidate
 
-    meter.start("independent_best_of_n", llm=llm, embedder=embedder)
-    independent = independent_best_of_n(
-        generate=independent_generate,
-        score=score,
-        budget=budget,
-    )
-    meter.finish(llm=llm, embedder=embedder)
-
-    meter.start("mutation_hill_climber", llm=llm, embedder=embedder)
-    initial = generate_hill_seed()
-    hill = mutation_hill_climber(
-        initial=initial,
-        mutate=mutate,
-        score=score,
-        budget=budget,
-    )
-    meter.finish(llm=llm, embedder=embedder)
-
-    meter.start("adaptive_perquire", llm=llm, embedder=embedder)
-    adaptive = adaptive_feedback_search(
-        propose=adaptive_propose,
-        score=score,
-        budget=budget,
-    )
-    meter.finish(llm=llm, embedder=embedder)
-
-    traces = [independent, hill, adaptive]
-    for trace in traces:
-        if len(trace.observations) != budget:
-            raise RuntimeError(
-                f"{trace.method} spent {len(trace.observations)} evaluations; expected {budget}"
+    meter.start(method, llm=llm, embedder=embedder)
+    try:
+        if method == "independent_best_of_n":
+            trace = independent_best_of_n(generate=independent_generate, score=score, budget=budget)
+        elif method == "mutation_hill_climber":
+            trace = mutation_hill_climber(
+                initial=generate_hill_seed(), mutate=mutate, score=score, budget=budget
             )
-    return traces, meter, target_embedding_transport_attempts
+        else:
+            trace = adaptive_feedback_search(propose=adaptive_propose, score=score, budget=budget)
+    except Exception as error:
+        meter.finish(llm=llm, embedder=embedder)
+        raise MethodExecutionError(method, error, meter.by_method[method]) from error
+    meter.finish(llm=llm, embedder=embedder)
+
+    if len(trace.observations) != budget:
+        raise MethodExecutionError(
+            method,
+            RuntimeError(f"{method} spent {len(trace.observations)} evaluations; expected {budget}"),
+            meter.by_method[method],
+        )
+    return trace, meter
+
+
+def run_case(
+    case: BenchmarkCase, *, llm: Any, embedder: Any, budget: int
+) -> tuple[list[SearchTrace], ResourceMeter, int]:
+    """Compatibility runner: execute all frozen methods against one shared target."""
+    target, target_attempts = prepare_target(case, embedder)
+    traces: list[SearchTrace] = []
+    combined = ResourceMeter()
+    for method in METHODS:
+        trace, meter = run_method(
+            case, llm=llm, embedder=embedder, budget=budget, method=method, target=target
+        )
+        traces.append(trace)
+        combined.by_method[method] = dict(meter.by_method[method])
+    return traces, combined, target_attempts
 
 
 def main() -> None:
@@ -264,9 +302,10 @@ def main() -> None:
     parser.add_argument("--embedding-provider", default="gemini")
     parser.add_argument("--budget", type=int, default=10)
     parser.add_argument("--limit", type=int)
-    parser.add_argument("--output", type=Path, default=Path("benchmark_results/semantic_inversion_v1.json"))
+    parser.add_argument(
+        "--output", type=Path, default=Path("benchmark_results/semantic_inversion_v1.json")
+    )
     args = parser.parse_args()
-
     if args.budget < 1:
         raise SystemExit("--budget must be >= 1")
 
@@ -279,17 +318,10 @@ def main() -> None:
     records: list[dict[str, Any]] = []
     case_overheads: list[dict[str, Any]] = []
     for case in cases:
-        traces, meter, target_attempts = run_case(
-            case, llm=llm, embedder=embedder, budget=args.budget
-        )
-        records.extend(
-            trace_to_dict(case, trace, meter.by_method.get(trace.method)) for trace in traces
-        )
+        traces, meter, target_attempts = run_case(case, llm=llm, embedder=embedder, budget=args.budget)
+        records.extend(trace_to_dict(case, trace, meter.by_method.get(trace.method)) for trace in traces)
         case_overheads.append(
-            {
-                "case_id": case.case_id,
-                "target_embedding_transport_attempts": target_attempts,
-            }
+            {"case_id": case.case_id, "target_embedding_transport_attempts": target_attempts}
         )
 
     llm_info = llm.get_model_info() if hasattr(llm, "get_model_info") else {}
@@ -318,7 +350,7 @@ def main() -> None:
             ),
             "transport_attempts": (
                 "llm_transport_attempts and embedding_transport_attempts include bounded retries; "
-                "llm_calls counts logical generation operations requested by each method."
+                "llm_calls counts logical generation operations attempted by each method."
             ),
             "llm_replay": (
                 "LLM replay cache keys include case/method/step logical identity plus model, prompt, "
