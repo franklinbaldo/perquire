@@ -44,7 +44,7 @@ api-anthropic = [
     "llama-index-core>=0.12.45",
     "llama-index-llms-anthropic>=0.7.5",
 ]
-api-openrouter = ["litellm>=1.97.0"]
+api-openrouter = ["litellm==1.97.0"]
 api-ollama = ["llama-index-core>=0.12.45", "llama-index-llms-ollama>=0.6.2"]
 pydantic-ai = ["pydantic-ai>=0.0.14"]
 
