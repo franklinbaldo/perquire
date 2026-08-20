@@ -18,8 +18,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
-          cache: pip
+          python-version: '3.12.13'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.5'
+          enable-cache: true
 
       - name: Restore accumulated scaling-smoke cache
         uses: actions/cache/restore@v4
@@ -37,16 +40,14 @@ jobs:
         run: |
           test -n "${OPENROUTER_API_KEY}" || { echo '::error::OPENROUTER_API_KEY missing'; exit 1; }
 
-      - name: Install OpenRouter boundary
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e '.[api-openrouter]'
+      - name: Sync frozen OpenRouter boundary
+        run: uv sync --python 3.12.13 --extra api-openrouter --frozen
 
       - name: Run multi-budget multi-replicate smoke
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
-          python -m benchmarks.run_scaling_sweep \
+          uv run --python 3.12.13 python -m benchmarks.run_scaling_sweep \
             --llm-provider openrouter \
             --embedding-provider openrouter \
             --limit 1 \
@@ -56,7 +57,7 @@ jobs:
 
       - name: Validate scaling artifact
         run: |
-          python - <<'PY'
+          uv run --python 3.12.13 python - <<'PY'
           import json
           from pathlib import Path
 
