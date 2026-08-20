@@ -26,7 +26,7 @@ from .base import BaseLLMProvider, LLMProviderError, LLMResponse
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "openai/gpt-oss-20b:free"
+DEFAULT_MODEL = "google/gemini-2.5-flash-lite"
 DEFAULT_REQUESTS_PER_MINUTE = 20
 DEFAULT_MAX_RETRIES = 2
 _LIST_MARKER = re.compile(r"^\s*(?:[-*\u2022]|\d+[.)])\s+")
