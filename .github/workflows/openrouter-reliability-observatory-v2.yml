@@ -7,13 +7,15 @@ on:
   schedule:
     - cron: '7,37 * * * *'
   workflow_dispatch:
+  pull_request:
 
 concurrency:
-  group: openrouter-reliability-observatory-v2
+  group: openrouter-reliability-observatory-v2-${{ github.event_name }}
   cancel-in-progress: false
 
 jobs:
   observe:
+    if: github.event_name != 'pull_request' || github.head_ref == 'experiment/reliability-acceptance-v2'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -42,6 +44,22 @@ jobs:
             --calls 20 \
             --window-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
             --output "benchmark_results/openrouter_reliability_v2_${stamp}.json"
+      - name: Require one 20/20 acceptance window
+        if: github.event_name == 'pull_request'
+        run: |
+          uv run --python 3.12.13 python - <<'PY'
+          import json
+          from pathlib import Path
+
+          files = sorted(Path('benchmark_results').glob('openrouter_reliability_v2_*.json'))
+          assert len(files) == 1, files
+          data = json.loads(files[0].read_text())
+          successes = sum(bool(call['success']) for call in data['calls'])
+          total = len(data['calls'])
+          print(f'acceptance successes={successes}/{total}')
+          if total != 20 or successes != total:
+              raise SystemExit(1)
+          PY
       - name: Upload observation window
         if: always()
         uses: actions/upload-artifact@v4
