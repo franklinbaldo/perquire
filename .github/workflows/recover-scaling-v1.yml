@@ -1,0 +1,87 @@
+name: Recover scaling v1 aggregate
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/recover-scaling-v1.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  recover:
+    if: github.head_ref == 'experiment/recover-scaling-v1-aggregate'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Download only already-observed primary-v1 shards
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          repository: franklinbaldo/perquire
+          run-id: 32356968748
+          pattern: scaling-v1-shard-*
+          path: benchmark_results/shards
+
+      - name: Prove 120/120 shard artifacts are present
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          root = Path('benchmark_results/shards')
+          files = sorted(root.rglob('*.json'))
+          expected = {
+              f'scaling-v1-case-{case}-budget-{budget}.json'
+              for case in range(1, 25)
+              for budget in (2, 4, 8, 16, 32)
+          }
+          observed = {path.name for path in files}
+          missing = sorted(expected - observed)
+          unexpected = sorted(observed - expected)
+          print('observed_shards', len(observed))
+          print('missing_shards', missing)
+          print('unexpected_shards', unexpected)
+          assert len(observed) == 120
+          assert not missing
+          assert not unexpected
+          PY
+
+      - name: Merge canonical diagnostic aggregate
+        run: |
+          python -m benchmarks.merge_scaling_shards benchmark_results/shards \
+            --output benchmark_results/openrouter_scaling_v1_recovered.json
+
+      - name: Validate recovered shape without changing v1 eligibility
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path('benchmark_results/openrouter_scaling_v1_recovered.json')
+          data = json.loads(path.read_text())
+          validity = data['validity']
+          assert data['budgets'] == [2, 4, 8, 16, 32]
+          assert data['replicates'] == 3
+          assert data['case_count'] == 24
+          assert validity['expected_cells'] == 1080
+          assert validity['observed_cells'] == 1080
+          assert validity['missing_cells'] == 0
+          assert validity['clean_v1_claim_eligible'] is False
+          print('RECOVERED_SCALING_V1_DIAGNOSTIC')
+          print('validity', json.dumps(validity, sort_keys=True))
+          PY
+
+      - name: Upload recovered diagnostic aggregate
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: openrouter-scaling-v1-recovered-diagnostic
+          path: benchmark_results/openrouter_scaling_v1_recovered.json
+          if-no-files-found: error
+          retention-days: 90
