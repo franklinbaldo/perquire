@@ -14,20 +14,31 @@ jobs:
     if: github.head_ref == 'experiment/recover-scaling-v1-aggregate'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PRIMARY_RUN_ID: '32356968748'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Download only already-observed primary-v1 shards
-        uses: actions/download-artifact@v4
-        with:
-          github-token: ${{ github.token }}
-          repository: franklinbaldo/perquire
-          run-id: 32356968748
-          pattern: scaling-v1-shard-*
-          path: benchmark_results/shards
+      - name: Download all already-observed primary-v1 shards with pagination
+        run: |
+          set -euo pipefail
+          mkdir -p benchmark_results/shards
+          gh api --paginate \
+            "repos/franklinbaldo/perquire/actions/runs/${PRIMARY_RUN_ID}/artifacts?per_page=100" \
+            --jq '.artifacts[] | select(.name | startswith("scaling-v1-shard-")) | [.id, .name] | @tsv' \
+            > /tmp/scaling-v1-artifacts.tsv
+
+          test "$(wc -l < /tmp/scaling-v1-artifacts.tsv)" -eq 120
+          while IFS=$'\t' read -r artifact_id artifact_name; do
+            destination="benchmark_results/shards/${artifact_name}"
+            mkdir -p "${destination}"
+            gh api "repos/franklinbaldo/perquire/actions/artifacts/${artifact_id}/zip" > /tmp/scaling-v1-shard.zip
+            unzip -q /tmp/scaling-v1-shard.zip -d "${destination}"
+          done < /tmp/scaling-v1-artifacts.tsv
 
       - name: Prove 120/120 shard artifacts are present
         run: |
