@@ -10,14 +10,17 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-# Frozen initial free-first candidate set. Changing this set requires a new
-# preregistered contract before benchmark target scores are observed.
+# Frozen free-first candidate set after the first target-free acceptance run
+# falsified the initial availability assumptions: four slugs were no longer
+# served as free endpoints and the remaining route was shared-pool rate-limited.
+# These replacements were selected from OpenRouter's current model catalog
+# before any v2 benchmark target score was observed.
 MODELS = (
-    "openai/gpt-oss-20b:free",
-    "google/gemini-2.5-flash-lite:free",
-    "google/gemini-3.1-flash-lite:free",
-    "meta-llama/llama-3.3-70b-instruct:free",
-    "qwen/qwen3-4b:free",
+    "google/gemma-4-26b-a4b-it:free",
+    "qwen/qwen3-235b-a22b-2507:free",
+    "qwen/qwen3-32b:free",
+    "qwen/qwen3-14b:free",
+    "inclusionai/ling-3.0-flash:free",
 )
 PROMPTS = (
     "Generate one concise semantic description of an unspecified topic. Return only the description.",
