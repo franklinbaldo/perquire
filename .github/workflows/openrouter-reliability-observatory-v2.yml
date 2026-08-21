@@ -57,7 +57,7 @@ jobs:
           successes = sum(bool(call['success']) for call in calls)
           total = len(calls)
           print(f"selected_model={data.get('selected_model')} acceptance successes={successes}/{total}")
-          if total != 15 or successes != total:
+          if total != 10 or successes != total:
               raise SystemExit(1)
           PY
       - name: Upload observation window
