@@ -7,6 +7,7 @@ import argparse
 import json
 import math
 import os
+import statistics
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -17,9 +18,10 @@ import requests
 CATALOG_URL = "https://openrouter.ai/api/v1/models"
 OPENROUTER_BASE_URL = "https://openrouter.ai"
 DISCOVERY_CANDIDATES = 5
-QUALIFICATION_CALLS_PER_MODEL = 1
-OBSERVATION_CALLS = 15
-MIN_UPTIME_PERCENT = 95.0
+QUALIFICATION_CALLS_PER_MODEL = 2
+OBSERVATION_CALLS = 10
+MIN_MEAN_UPTIME_PERCENT = 99.5
+MIN_ENDPOINT_UPTIME_PERCENT = 95.0
 PROMPTS = (
     "Generate one concise semantic description of an unspecified topic. Return only the description.",
     "Rewrite this candidate into one nearby but meaningfully different semantic alternative: 'a public institution processes records'. Return only the alternative.",
@@ -63,18 +65,22 @@ def _quality_metrics(model: dict[str, Any]) -> dict[str, float | None]:
     }
 
 
+def _uptime_for_endpoint(endpoint: dict[str, Any]) -> tuple[float | None, str | None]:
+    for field in ("uptime_last_5m", "uptime_last_30m", "uptime_last_1d"):
+        if (value := _number(endpoint.get(field))) is not None:
+            return value, field
+    return None, None
+
+
 def _health_summary(endpoints: list[dict[str, Any]]) -> dict[str, Any]:
     operational = [endpoint for endpoint in endpoints if int(endpoint.get("status", 1)) == 0]
-    uptime_30m = [
-        value
+    uptime_rows = [
+        (value, source)
         for endpoint in operational
-        if (value := _number(endpoint.get("uptime_last_30m"))) is not None
+        if (value_source := _uptime_for_endpoint(endpoint))[0] is not None
+        for value, source in [value_source]
     ]
-    uptime_1d = [
-        value
-        for endpoint in operational
-        if (value := _number(endpoint.get("uptime_last_1d"))) is not None
-    ]
+    uptime_values = [float(value) for value, _source in uptime_rows]
     throughput_p50 = [
         value
         for endpoint in operational
@@ -85,14 +91,25 @@ def _health_summary(endpoints: list[dict[str, Any]]) -> dict[str, Any]:
         for endpoint in operational
         if (value := _number((endpoint.get("latency_last_30m") or {}).get("p50"))) is not None
     ]
-    best_uptime = max(uptime_30m) if uptime_30m else (max(uptime_1d) if uptime_1d else None)
+    mean_uptime = statistics.fmean(uptime_values) if uptime_values else None
+    min_uptime = min(uptime_values) if uptime_values else None
     return {
         "endpoint_count": len(endpoints),
         "operational_endpoint_count": len(operational),
-        "best_uptime_percent": best_uptime,
+        "reported_uptime_endpoint_count": len(uptime_values),
+        "uptime_sources": sorted({source for _value, source in uptime_rows if source}),
+        "mean_uptime_percent": mean_uptime,
+        "minimum_uptime_percent": min_uptime,
         "best_throughput_p50": max(throughput_p50) if throughput_p50 else None,
         "best_latency_p50": min(latency_p50) if latency_p50 else None,
-        "health_eligible": best_uptime is not None and best_uptime >= MIN_UPTIME_PERCENT,
+        "health_eligible": (
+            bool(operational)
+            and len(uptime_values) == len(operational)
+            and mean_uptime is not None
+            and min_uptime is not None
+            and mean_uptime >= MIN_MEAN_UPTIME_PERCENT
+            and min_uptime >= MIN_ENDPOINT_UPTIME_PERCENT
+        ),
     }
 
 
@@ -107,14 +124,12 @@ def _ascending(value: float | None) -> float:
 def _candidate_sort_key(candidate: dict[str, Any]) -> tuple[Any, ...]:
     quality = candidate["quality"]
     health = candidate["health"]
-    # Capability dominates after the reliability floor. OpenRouter's Artificial Analysis
-    # intelligence score is the primary general-capability signal; agentic and coding
-    # indices break ties without consulting any Perquire target or similarity score.
     return (
         _descending(quality["intelligence_index"]),
         _descending(quality["agentic_index"]),
         _descending(quality["coding_index"]),
-        _descending(health["best_uptime_percent"]),
+        _descending(health["mean_uptime_percent"]),
+        _descending(health["minimum_uptime_percent"]),
         _descending(health["best_throughput_p50"]),
         _ascending(health["best_latency_p50"]),
         str(candidate["model"]),
@@ -167,13 +182,15 @@ def discover_free_models(api_key: str) -> dict[str, Any]:
         "catalog_url": CATALOG_URL,
         "catalog_model_count": len(data),
         "catalog_free_text_model_count": len(free_models),
-        "minimum_uptime_percent": MIN_UPTIME_PERCENT,
+        "minimum_mean_uptime_percent": MIN_MEAN_UPTIME_PERCENT,
+        "minimum_endpoint_uptime_percent": MIN_ENDPOINT_UPTIME_PERCENT,
         "selection_rule": (
             "query current OpenRouter catalog at runtime; filter :free + zero prompt/completion price + text output; "
-            "fetch each model's canonical Endpoints API record; require an operational endpoint with reported "
-            "30m uptime (fallback 1d) >=95%; rank eligible models by OpenRouter Artificial Analysis intelligence, "
-            "then agentic, then coding index, followed only by uptime/throughput/latency tie-breaks; qualify the "
-            "top five with one target-free call each; choose the highest-ranked candidate whose probe succeeds"
+            "fetch each model's canonical Endpoints API record; for every operational endpoint use 5m uptime, "
+            "falling back to 30m then 1d only when unavailable; require complete uptime coverage, route mean >=99.5% "
+            "and every endpoint >=95%; rank healthy models by OpenRouter Artificial Analysis intelligence, then "
+            "agentic, then coding index; qualify the top five with two target-free calls each; choose the "
+            "highest-capability candidate that passes 2/2 on our account"
         ),
         "checked_models": checked,
         "candidates": candidates,
@@ -217,20 +234,24 @@ def qualify_candidates(candidates: list[dict[str, Any]]) -> tuple[list[dict[str,
     selected_model: str | None = None
     for candidate_index, candidate in enumerate(candidates):
         model = str(candidate["model"])
-        prompt_index = candidate_index % len(PROMPTS)
-        row = probe_call(model, PROMPTS[prompt_index])
-        row.update({"candidate_index": candidate_index, "prompt_index": prompt_index})
+        rows: list[dict[str, Any]] = []
+        for probe_index in range(QUALIFICATION_CALLS_PER_MODEL):
+            prompt_index = (candidate_index + probe_index) % len(PROMPTS)
+            row = probe_call(model, PROMPTS[prompt_index])
+            row.update({"candidate_index": candidate_index, "probe_index": probe_index, "prompt_index": prompt_index})
+            rows.append(row)
+        successes = sum(bool(row["success"]) for row in rows)
         qualification.append(
             {
                 "model": model,
                 "quality": candidate["quality"],
                 "health": candidate["health"],
-                "successes": int(bool(row["success"])),
-                "attempts": 1,
-                "calls": [row],
+                "successes": successes,
+                "attempts": len(rows),
+                "calls": rows,
             }
         )
-        if selected_model is None and row["success"]:
+        if selected_model is None and successes == QUALIFICATION_CALLS_PER_MODEL:
             selected_model = model
 
     return qualification, selected_model
@@ -279,7 +300,7 @@ def main() -> None:
         payload["qualification"] = qualification
         payload["selected_model"] = selected_model
         if selected_model is None:
-            raise RuntimeError("no quality-ranked free candidate passed the target-free account probe")
+            raise RuntimeError("no quality-ranked free candidate passed 2/2 target-free account probes")
 
         observation_calls: list[dict[str, Any]] = []
         for observation_index in range(OBSERVATION_CALLS):
