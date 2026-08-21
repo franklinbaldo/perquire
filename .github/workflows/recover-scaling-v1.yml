@@ -22,6 +22,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
 
       - name: Download all already-observed primary-v1 shards with pagination
         run: |
@@ -65,7 +66,7 @@ jobs:
 
       - name: Merge canonical diagnostic aggregate
         run: |
-          python -m benchmarks.merge_scaling_shards benchmark_results/shards \
+          uv run python -m benchmarks.merge_scaling_shards benchmark_results/shards \
             --output benchmark_results/openrouter_scaling_v1_recovered.json
 
       - name: Validate recovered shape without changing v1 eligibility
