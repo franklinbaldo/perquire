@@ -1,11 +1,11 @@
 name: OpenRouter reliability observatory v2
 
 # Target-free longitudinal qualification for scaling v2.
-# 24 windows/day x <=40 inference calls/window = <=960 free calls/day maximum.
-# Minute 17 avoids top-of-hour congestion while preserving hourly coverage.
+# 48 windows/day x <=20 inference calls/window = <=960 free calls/day maximum.
+# Minutes 7 and 37 avoid top-of-hour congestion while increasing temporal coverage.
 on:
   schedule:
-    - cron: '17 * * * *'
+    - cron: '7,37 * * * *'
   workflow_dispatch:
   pull_request:
 
@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   observe:
-    if: github.event_name != 'pull_request' || github.head_ref == 'experiment/reliability-acceptance-v2'
+    if: github.event_name != 'pull_request' || github.head_ref == 'experiment/reliability-quality-aware-v2'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -35,7 +35,7 @@ jobs:
         run: test -n "${OPENROUTER_API_KEY}" || { echo '::error::OPENROUTER_API_KEY missing'; exit 1; }
       - name: Sync frozen OpenRouter boundary
         run: uv sync --python 3.12.13 --extra api-openrouter --frozen
-      - name: Run one target-free qualification and observation window
+      - name: Run one quality-aware target-free observation window
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
@@ -43,7 +43,7 @@ jobs:
           uv run --python 3.12.13 python -m benchmarks.probe_openrouter_reliability_v2 \
             --window-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
             --output "benchmark_results/openrouter_reliability_v2_${stamp}.json"
-      - name: Require one 20/20 observation window
+      - name: Require one 100% observation window
         if: github.event_name == 'pull_request'
         run: |
           uv run --python 3.12.13 python - <<'PY'
@@ -57,7 +57,7 @@ jobs:
           successes = sum(bool(call['success']) for call in calls)
           total = len(calls)
           print(f"selected_model={data.get('selected_model')} acceptance successes={successes}/{total}")
-          if total != 20 or successes != total:
+          if total != 15 or successes != total:
               raise SystemExit(1)
           PY
       - name: Upload observation window
