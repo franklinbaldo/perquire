@@ -1,0 +1,52 @@
+name: OpenRouter reliability observatory v2
+
+# Target-free longitudinal qualification for scaling v2.
+# 48 windows/day x 20 logical calls/window = 960 logical calls/day maximum.
+# Minutes 7 and 37 avoid the top-of-hour congestion documented by GitHub.
+on:
+  schedule:
+    - cron: '7,37 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: openrouter-reliability-observatory-v2
+  cancel-in-progress: false
+
+jobs:
+  observe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.13'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.5'
+          enable-cache: true
+      - name: Require OpenRouter credential
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: test -n "${OPENROUTER_API_KEY}" || { echo '::error::OPENROUTER_API_KEY missing'; exit 1; }
+      - name: Sync frozen OpenRouter boundary
+        run: uv sync --python 3.12.13 --extra api-openrouter --frozen
+      - name: Run one target-free observation window
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+          uv run --python 3.12.13 python -m benchmarks.probe_openrouter_reliability_v2 \
+            --calls 20 \
+            --window-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --output "benchmark_results/openrouter_reliability_v2_${stamp}.json"
+      - name: Upload observation window
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: openrouter-reliability-v2-${{ github.run_id }}-${{ github.run_attempt }}
+          path: benchmark_results/openrouter_reliability_v2_*.json
+          if-no-files-found: error
+          retention-days: 30
