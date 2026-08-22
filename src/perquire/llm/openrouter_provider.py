@@ -1,8 +1,7 @@
 """OpenRouter LLM provider.
 
-OpenRouter is reached through litellm, which namespaces models as
-``openrouter/<vendor>/<model>`` and reads ``OPENROUTER_API_KEY`` from the
-environment.
+litellm routes ``openrouter/<vendor>/<model>`` to OpenRouter. Scientific callers
+may additionally constrain OpenRouter's upstream provider routing explicitly.
 """
 
 from __future__ import annotations
@@ -20,6 +19,7 @@ from ..providers.llm_cache import (
     default_llm_cache_path,
     normalize_llm_cache_mode,
 )
+from ..providers.openrouter_routing import provider_extra_body, provider_routing
 from ..providers.rate_limit import get_shared_pacer
 from ..providers.retry import EmptyProviderResponse, call_with_transient_retries
 from .base import BaseLLMProvider, LLMProviderError, LLMResponse
@@ -47,13 +47,15 @@ def parse_lines(content: str) -> list[str]:
 
 
 class OpenRouterProvider(BaseLLMProvider):
-    """Generate candidate text through any OpenRouter-hosted chat model."""
+    """Generate candidate text through an OpenRouter-hosted model."""
 
     def __init__(self, config: dict[str, Any]):
         super().__init__(config)
         rpm = int(self.config.get("requests_per_minute", DEFAULT_REQUESTS_PER_MINUTE))
         self._pacer = get_shared_pacer("openrouter", rpm)
         self._max_retries = int(self.config.get("max_retries", DEFAULT_MAX_RETRIES))
+        self._provider_routing = provider_routing(self.config)
+        self._provider_extra_body = provider_extra_body(self.config)
         self.transport_attempts = 0
         self.cache_hits = 0
         self.cache_misses = 0
@@ -80,7 +82,11 @@ class OpenRouterProvider(BaseLLMProvider):
         logical_request = kwargs.pop("cache_request_id", None)
         temperature = kwargs.get("temperature", self.config.get("temperature", 0.7))
         max_tokens = kwargs.get("max_tokens", self.config.get("max_tokens", 256))
-        parameters = {"temperature": temperature, "max_tokens": max_tokens}
+        parameters = {
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "provider_routing": self._provider_routing,
+        }
 
         if self._cache is not None and self._cache_mode == "replay" and logical_request:
             cached = self._cache.get_first(
@@ -96,13 +102,16 @@ class OpenRouterProvider(BaseLLMProvider):
 
         def request():
             self.transport_attempts += 1
-            response = completion(
-                model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-                api_key=self._api_key(),
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
+            call_kwargs: dict[str, Any] = {
+                "model": self.model,
+                "messages": [{"role": "user", "content": prompt}],
+                "api_key": self._api_key(),
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            }
+            if self._provider_extra_body is not None:
+                call_kwargs["extra_body"] = self._provider_extra_body
+            response = completion(**call_kwargs)
             content = response.choices[0].message.content or ""
             if not content.strip():
                 raise EmptyProviderResponse("OpenRouter returned an empty completion")
@@ -133,7 +142,11 @@ class OpenRouterProvider(BaseLLMProvider):
         content = self._complete(prompt, **kwargs)
         return LLMResponse(
             content=content,
-            metadata={"provider": "openrouter", "model": self.model},
+            metadata={
+                "provider": "openrouter",
+                "model": self.model,
+                "provider_routing": self._provider_routing,
+            },
             model=self.model,
         )
 
@@ -187,6 +200,7 @@ class OpenRouterProvider(BaseLLMProvider):
         return {
             "provider": "openrouter",
             "model": self.model,
+            "provider_routing": self._provider_routing,
             "requests_per_minute": self._pacer.requests_per_minute,
             "max_retries": self._max_retries,
             "transport_attempts": self.transport_attempts,
