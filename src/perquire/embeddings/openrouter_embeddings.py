@@ -1,8 +1,8 @@
 """OpenRouter embedding provider.
 
 litellm routes ``openrouter/<vendor>/<model>`` to OpenRouter's embeddings
-endpoint, so the benchmark can score candidates with the same credential it uses
-for generation.
+endpoint. Scientific callers may additionally constrain upstream provider routing
+so vectors from different inference paths cannot silently share one cache space.
 """
 
 from __future__ import annotations
@@ -18,6 +18,11 @@ from litellm import embedding
 
 from ..exceptions import ConfigurationError
 from ..providers.embedding_cache import EmbeddingCache, default_embedding_cache_path
+from ..providers.openrouter_routing import (
+    provider_extra_body,
+    provider_routing,
+    routing_identity,
+)
 from ..providers.rate_limit import get_shared_pacer
 from ..providers.retry import call_with_transient_retries
 from .base import BaseEmbeddingProvider, EmbeddingError, EmbeddingResult
@@ -30,14 +35,7 @@ DEFAULT_MAX_RETRIES = 2
 
 
 def _served_upstream_provider(response: Any) -> str | None:
-    """Extract OpenRouter's served-provider metadata without inventing it.
-
-    OpenRouter documents provider routing for embeddings but its public embedding
-    response schema does not guarantee a provider field. LiteLLM may preserve
-    additional response fields in different places depending on response type, so
-    inspect only provider-labelled fields and return ``None`` when unavailable.
-    """
-
+    """Extract OpenRouter's served-provider metadata without inventing it."""
     candidates: list[Any] = []
     if isinstance(response, dict):
         candidates.append(response.get("provider"))
@@ -53,12 +51,8 @@ def _served_upstream_provider(response: Any) -> str | None:
             if isinstance(headers, dict):
                 lowered = {str(key).lower(): value for key, value in headers.items()}
                 candidates.extend(
-                    [
-                        lowered.get("x-openrouter-provider"),
-                        lowered.get("x-provider"),
-                    ]
+                    [lowered.get("x-openrouter-provider"), lowered.get("x-provider")]
                 )
-
     for candidate in candidates:
         if candidate is not None and str(candidate).strip():
             return str(candidate).strip()
@@ -66,13 +60,16 @@ def _served_upstream_provider(response: Any) -> str | None:
 
 
 class OpenRouterEmbeddingProvider(BaseEmbeddingProvider):
-    """Embed text through any OpenRouter-hosted embedding model."""
+    """Embed text through an OpenRouter-hosted embedding model."""
 
     def __init__(self, config: dict[str, Any]):
         super().__init__(config)
         rpm = int(self.config.get("requests_per_minute", DEFAULT_REQUESTS_PER_MINUTE))
         self._pacer = get_shared_pacer("openrouter", rpm)
         self._max_retries = int(self.config.get("max_retries", DEFAULT_MAX_RETRIES))
+        self._provider_routing = provider_routing(self.config)
+        self._provider_extra_body = provider_extra_body(self.config)
+        self._routing_identity = routing_identity(self.config)
         cache_path = Path(self.config.get("cache_path") or default_embedding_cache_path())
         self._cache = EmbeddingCache(cache_path)
         self.transport_attempts = 0
@@ -98,10 +95,24 @@ class OpenRouterEmbeddingProvider(BaseEmbeddingProvider):
     def model(self) -> str:
         return f"openrouter/{self.config.get('model', DEFAULT_MODEL)}"
 
+    @property
+    def cache_space(self) -> str:
+        """Model + routing identity; unpinned legacy calls keep the legacy key."""
+        if self._routing_identity is None:
+            return self.model
+        return f"{self.model}|{self._routing_identity}"
+
     def _embed_uncached(self, texts: list[str]) -> tuple[list[np.ndarray], str | None]:
         def request():
             self.transport_attempts += 1
-            return embedding(model=self.model, input=texts, api_key=self._api_key())
+            call_kwargs: dict[str, Any] = {
+                "model": self.model,
+                "input": texts,
+                "api_key": self._api_key(),
+            }
+            if self._provider_extra_body is not None:
+                call_kwargs["extra_body"] = self._provider_extra_body
+            return embedding(**call_kwargs)
 
         try:
             response = call_with_transient_retries(
@@ -132,7 +143,7 @@ class OpenRouterEmbeddingProvider(BaseEmbeddingProvider):
         missing_texts: list[str] = []
 
         for index, text in enumerate(texts):
-            cached = self._cache.get(self.model, text)
+            cached = self._cache.get(self.cache_space, text)
             if cached is None:
                 self.cache_misses += 1
                 missing_indexes.append(index)
@@ -149,7 +160,7 @@ class OpenRouterEmbeddingProvider(BaseEmbeddingProvider):
                     f"OpenRouter returned {len(fetched)} embeddings for {len(missing_texts)} inputs"
                 )
             for index, text, vector in zip(missing_indexes, missing_texts, fetched, strict=True):
-                self._cache.put(self.model, text, vector)
+                self._cache.put(self.cache_space, text, vector)
                 self.cache_writes += 1
                 vectors[index] = vector
 
@@ -168,6 +179,8 @@ class OpenRouterEmbeddingProvider(BaseEmbeddingProvider):
         metadata: dict[str, Any] = {
             "provider": "openrouter",
             "model": self.model,
+            "provider_routing": self._provider_routing,
+            "cache_space": self.cache_space,
             "text_length": len(text),
         }
         if upstream_provider is not None:
@@ -183,15 +196,10 @@ class OpenRouterEmbeddingProvider(BaseEmbeddingProvider):
 
     def cached_embedding(self, text: str) -> np.ndarray | None:
         """Read an existing vector without silently paying for a provider call."""
-        return self._cache.get(self.model, text)
+        return self._cache.get(self.cache_space, text)
 
     def embed_text_uncached(self, text: str) -> EmbeddingResult:
-        """Embed exactly once through the provider boundary, bypassing cache lookup/write.
-
-        This is intended for diagnostics such as cross-era drift controls. It does
-        not mutate the cache, so it cannot contaminate the frozen target vector it
-        is comparing against.
-        """
+        """Embed once through the configured provider path, bypassing cache read/write."""
         vectors, served_provider = self._embed_uncached([text])
         if not vectors:
             raise EmbeddingError("OpenRouter returned no embedding for the requested text")
@@ -228,6 +236,8 @@ class OpenRouterEmbeddingProvider(BaseEmbeddingProvider):
         return {
             "provider": "openrouter",
             "model": self.model,
+            "provider_routing": self._provider_routing,
+            "cache_space": self.cache_space,
             "dimensions": self._dimensions,
             "requests_per_minute": self._pacer.requests_per_minute,
             "max_retries": self._max_retries,
