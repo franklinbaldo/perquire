@@ -12,7 +12,9 @@ This experiment intentionally narrows the Perquire claim. It does **not** test, 
 
 The causal claim tested here is:
 
-> Holding generation opportunities, prompt structure, chronological candidate history, model configuration, and evaluation count fixed, feedback numbers that contain information about the correct target should lead to better future candidates with respect to that target than target-irrelevant feedback numbers.
+> Holding generation opportunities, proposer code/prompt structure, model configuration, and evaluation count fixed, feedback numbers that contain information about the correct target should cause better downstream candidate trajectories than target-irrelevant feedback numbers.
+
+Candidate texts are expected to diverge across arms after feedback first differs. That divergence is a downstream mediator of the treatment, not a design asymmetry. What is held fixed is the proposer mechanism, history **format and access**, and all exogenous inputs other than the source of the feedback numbers.
 
 ## 2. Why v2 is necessary
 
@@ -28,9 +30,9 @@ V2 therefore tests the mechanism first, before another broad scaling claim.
 
 ## 3. Frozen causal arms
 
-All three arms use the **same iterative proposer** and **same prompt template**. The proposer receives the chronological text of all candidates it has generated so far and one numeric feedback value for each prior candidate.
+All three arms use the **same iterative proposer** and **same prompt template**. At each step the proposer receives its own arm's chronological candidate history and one numeric feedback value for each prior candidate. History layout and access are identical; candidate text may diverge only as a consequence of prior treatment.
 
-Only the source of those numeric values changes.
+Only the source of the numeric feedback values is manipulated exogenously.
 
 ### A. `true_feedback`
 
@@ -62,8 +64,8 @@ Across arms, for a target and replicate:
 
 - generation model and provider configuration;
 - temperature, max tokens, retry/failure policy;
-- proposer system/user prompt template;
-- chronological candidate-history format;
+- proposer code and system/user prompt template;
+- chronological candidate-history format and access rule;
 - one logical LLM generation opportunity per step;
 - one candidate selected from each generation response by the same parser rule;
 - number of target-similarity evaluations;
@@ -74,6 +76,8 @@ Across arms, for a target and replicate:
 - artifact schema.
 
 The arm label itself must not be disclosed to the model. Prompts describe the numbers neutrally as `feedback`, not as true/false/decoy/null.
+
+The experiment does **not** force candidate texts to remain identical after treatment. Requiring that would block the very causal pathway being tested. Given the same candidate texts/history, however, prompt construction must differ across arms only through the feedback-number values.
 
 ## 5. Nested trajectory and budgets
 
@@ -151,14 +155,16 @@ The corpus remains the frozen 24-case v1 corpus for comparability, but the first
 
 No target-scored provider run. Deterministic fake-provider tests must prove:
 
-- arm prompts are byte-identical except feedback numbers;
+- all arms execute the same proposer code and prompt template;
+- given the same candidate-text history, rendered prompts can differ only in feedback-number values;
+- arm identity is never disclosed to the model;
 - hidden source text never enters proposer prompts or cache request IDs;
 - true outcome scoring is always against the correct target, including decoy/null arms;
 - decoy feedback uses only the preregistered paired target;
 - checkpoint curves are truncations of one trajectory;
-- arm order is counterbalanced and persisted;
+- arm order is deterministically varied and persisted;
 - exactly one logical generation call occurs per step per arm;
-- partial observations survive operational failure, while the failed cell remains invalid.
+- partial observations survive operational failure, while the failed trajectory remains invalid.
 
 ### Gate B — causal pilot
 
