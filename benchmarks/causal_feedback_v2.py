@@ -79,11 +79,14 @@ def pair_decoys(cases: Iterable[CausalCase]) -> dict[str, str]:
     ids = [case.case_id for case in ordered]
     if len(set(ids)) != len(ids):
         raise ValueError("case_id values must be unique")
-    return {case.case_id: ordered[(index + 1) % len(ordered)].case_id for index, case in enumerate(ordered)}
+    return {
+        case.case_id: ordered[(index + 1) % len(ordered)].case_id
+        for index, case in enumerate(ordered)
+    }
 
 
 def arm_order(case_id: str, replicate: int, version: str = EXPERIMENT_VERSION) -> tuple[str, ...]:
-    """Deterministically counterbalance arm order without target outcomes."""
+    """Deterministically vary arm order without consulting target outcomes."""
     ranked = sorted(
         ARMS,
         key=lambda arm: hashlib.sha256(
@@ -181,13 +184,15 @@ def best_so_far(trace: CausalTrace) -> list[float]:
     return curve
 
 
-def checkpoint_metrics(trace: CausalTrace, checkpoints: Iterable[int] = CHECKPOINTS) -> list[dict[str, float | int]]:
-    """Summarize prefixes of one trajectory; checkpoints never trigger new generation."""
+def checkpoint_metrics(
+    trace: CausalTrace, checkpoints: Iterable[int] = CHECKPOINTS
+) -> list[dict[str, float | int]]:
+    """Summarize reached prefixes only; checkpoints never trigger generation."""
     rows: list[dict[str, float | int]] = []
     for checkpoint in checkpoints:
-        prefix = [item for item in trace.observations if item.step <= checkpoint]
-        if not prefix:
+        if len(trace.observations) < checkpoint:
             continue
+        prefix = trace.observations[:checkpoint]
         scores = [item.true_target_score for item in prefix]
         curve: list[float] = []
         best = float("-inf")
@@ -202,7 +207,10 @@ def checkpoint_metrics(trace: CausalTrace, checkpoints: Iterable[int] = CHECKPOI
         if len(curve) == 1:
             auc = curve[0]
         else:
-            auc = sum((curve[index - 1] + curve[index]) / 2.0 for index in range(1, len(curve)))
+            auc = sum(
+                (curve[index - 1] + curve[index]) / 2.0
+                for index in range(1, len(curve))
+            )
         ordered = sorted(scores)
         midpoint = len(ordered) // 2
         median = (
