@@ -1,0 +1,96 @@
+name: OpenRouter reliability freeze check v2
+
+on:
+  schedule:
+    - cron: '17 0,12 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: openrouter-reliability-freeze-check-v2
+  cancel-in-progress: false
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.13'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.5'
+          enable-cache: true
+      - name: Sync frozen core boundary
+        run: uv sync --python 3.12.13 --frozen
+      - name: Collect main-branch target-free observatory artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/perquire-reliability-zips benchmark_results/reliability-windows
+          gh api --paginate "/repos/${REPO}/actions/artifacts?per_page=100" \
+            --jq '.artifacts[] | select(.expired == false) | select(.name | startswith("openrouter-reliability-v2-")) | select(.workflow_run.head_branch == "main") | [.id, .name] | @tsv' \
+            > /tmp/perquire-reliability-artifacts.tsv
+
+          while IFS=$'\t' read -r artifact_id artifact_name; do
+            test -n "${artifact_id}" || continue
+            zip_path="/tmp/perquire-reliability-zips/${artifact_id}.zip"
+            gh api "/repos/${REPO}/actions/artifacts/${artifact_id}/zip" > "${zip_path}"
+            unzip -oq "${zip_path}" -d benchmark_results/reliability-windows
+          done < /tmp/perquire-reliability-artifacts.tsv
+
+          echo "collected_artifacts=$(wc -l < /tmp/perquire-reliability-artifacts.tsv)"
+          find benchmark_results/reliability-windows -name 'openrouter_reliability_v2_*.json' -type f | sort > /tmp/perquire-reliability-json.txt
+          echo "collected_windows=$(wc -l < /tmp/perquire-reliability-json.txt)"
+      - name: Evaluate frozen prospective rule
+        run: |
+          set -euo pipefail
+          mapfile -t windows < /tmp/perquire-reliability-json.txt
+          if [ "${#windows[@]}" -eq 0 ]; then
+            uv run --python 3.12.13 python - <<'PY'
+          import json
+          from pathlib import Path
+          from benchmarks.aggregate_openrouter_reliability_v2 import aggregate
+
+          out = Path('benchmark_results/openrouter_reliability_freeze_v2.json')
+          out.write_text(json.dumps(aggregate([]), indent=2), encoding='utf-8')
+          print(out)
+          PY
+          else
+            uv run --python 3.12.13 python -m benchmarks.aggregate_openrouter_reliability_v2 \
+              "${windows[@]}" \
+              --output benchmark_results/openrouter_reliability_freeze_v2.json
+          fi
+
+          uv run --python 3.12.13 python - <<'PY'
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path('benchmark_results/openrouter_reliability_freeze_v2.json').read_text())
+          print('status=', data['status'])
+          print('prospective_windows=', data['prospective_windows'])
+          print('selected_model_for_freeze_review=', data['selected_model_for_freeze_review'])
+          print('freeze_authorized=', data['freeze_authorized'])
+          for candidate in data['candidates']:
+              print(candidate['model'], {
+                  'windows': candidate['selected_windows'],
+                  'span_hours': candidate['span_hours'],
+                  'success_rate': candidate['observation_success_rate'],
+                  'clean_window_fraction': candidate['clean_window_fraction'],
+                  'eligible_for_freeze_review': candidate['eligible_for_freeze_review'],
+              })
+          PY
+      - name: Upload target-free freeze assessment
+        uses: actions/upload-artifact@v4
+        with:
+          name: openrouter-reliability-freeze-v2-${{ github.run_id }}
+          path: benchmark_results/openrouter_reliability_freeze_v2.json
+          if-no-files-found: error
+          retention-days: 90
