@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Execute the preregistered causal-feedback v2 mechanism experiment.
 
-No live run should begin until a generation substrate is frozen prospectively by
-the target-free reliability program. The runner therefore requires explicit
-model/failure-policy arguments instead of silently inheriting a moving default.
+The runner deliberately has no scientific substrate defaults: model, upstream
+provider path, pacing/retries, and validity threshold must all come from a
+prospectively versioned freeze record.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ from benchmarks.causal_feedback_v2 import (
 from perquire.embeddings.openrouter_embeddings import OpenRouterEmbeddingProvider
 from perquire.embeddings.utils import cosine_similarity
 from perquire.llm.openrouter_provider import OpenRouterProvider
-
+from perquire.providers.openrouter_routing import normalize_provider_order
 
 DEFAULT_CASES = Path("benchmarks/cases_v1.jsonl")
 DEFAULT_OUTPUT = Path("benchmark_results/causal_feedback_v2.json")
@@ -99,7 +99,9 @@ def target_level_effects(records: list[dict[str, Any]], checkpoints: tuple[int, 
                 arm_values[arm] = {
                     "best": statistics.fmean(float(row["best_true_target_score"]) for row in rows),
                     "auc": statistics.fmean(float(row["auc_best_so_far_step"]) for row in rows),
-                    "mean_candidate": statistics.fmean(float(row["mean_true_target_score"]) for row in rows),
+                    "mean_candidate": statistics.fmean(
+                        float(row["mean_true_target_score"]) for row in rows
+                    ),
                     "improvement_fraction": statistics.fmean(
                         float(row["improvement_fraction"]) for row in rows
                     ),
@@ -151,16 +153,34 @@ def main() -> None:
     parser.add_argument("--cases", type=Path, default=DEFAULT_CASES)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--llm-model", required=True)
+    parser.add_argument(
+        "--llm-provider-order",
+        required=True,
+        help="comma-separated OpenRouter upstream provider slugs from the freeze record",
+    )
     parser.add_argument("--embedding-model", required=True)
+    parser.add_argument(
+        "--embedding-provider-order",
+        required=True,
+        help="comma-separated OpenRouter upstream provider slugs from the freeze record",
+    )
     parser.add_argument("--max-steps", type=int, choices=(16, 32), default=16)
     parser.add_argument("--replicates", type=int, default=1)
     parser.add_argument("--requests-per-minute", type=int, required=True)
     parser.add_argument("--max-retries", type=int, required=True)
+    parser.add_argument("--minimum-validity-threshold", type=float, required=True)
     parser.add_argument("--limit", type=int)
     args = parser.parse_args()
 
     if args.replicates < 1:
         raise SystemExit("--replicates must be >= 1")
+    if not 0.0 < args.minimum_validity_threshold <= 1.0:
+        raise SystemExit("--minimum-validity-threshold must be in (0, 1]")
+
+    llm_provider_order = normalize_provider_order(args.llm_provider_order)
+    embedding_provider_order = normalize_provider_order(args.embedding_provider_order)
+    if not llm_provider_order or not embedding_provider_order:
+        raise SystemExit("both provider-order arguments must contain at least one provider")
 
     cases = load_cases(args.cases)
     if args.limit is not None:
@@ -169,11 +189,11 @@ def main() -> None:
         raise SystemExit("at least two cases are required for prospective decoy pairing")
 
     decoy_ids = pair_decoys(cases)
-    by_id = {case.case_id: case for case in cases}
-
     llm = OpenRouterProvider(
         config={
             "model": args.llm_model,
+            "provider_order": llm_provider_order,
+            "allow_fallbacks": False,
             "requests_per_minute": args.requests_per_minute,
             "max_retries": args.max_retries,
             "cache_mode": "fresh",
@@ -182,6 +202,8 @@ def main() -> None:
     embedder = OpenRouterEmbeddingProvider(
         config={
             "model": args.embedding_model,
+            "provider_order": embedding_provider_order,
+            "allow_fallbacks": False,
             "requests_per_minute": args.requests_per_minute,
             "max_retries": args.max_retries,
         }
@@ -196,7 +218,6 @@ def main() -> None:
 
     records: list[dict[str, Any]] = []
     execution_order: list[dict[str, Any]] = []
-
     for replicate in range(args.replicates):
         for case in cases:
             order = arm_order(case.case_id, replicate)
@@ -262,6 +283,8 @@ def main() -> None:
 
     checkpoints = tuple(value for value in CHECKPOINTS if value <= args.max_steps)
     valid = sum(record["status"] == "valid" for record in records)
+    total = len(records)
+    valid_fraction = valid / total if total else 0.0
     payload = {
         "experiment": EXPERIMENT_VERSION,
         "preregistration": "docs/experiments/causal_feedback_v2_preregistration.md",
@@ -279,11 +302,12 @@ def main() -> None:
         "embedding": embedder.get_model_info(),
         "target_embedding_transport_attempts": target_embedding_attempts,
         "validity": {
-            "expected_trajectories": len(cases) * args.replicates * len(ARMS),
+            "expected_trajectories": total,
             "valid_trajectories": valid,
-            "invalid_trajectories": len(records) - valid,
-            "minimum_validity_threshold": None,
-            "note": "Gate-B threshold must be frozen with the generation substrate before live target scoring",
+            "invalid_trajectories": total - valid,
+            "valid_fraction": valid_fraction,
+            "minimum_validity_threshold": args.minimum_validity_threshold,
+            "clean_claim_eligible": valid_fraction >= args.minimum_validity_threshold,
         },
         "target_level_effects": target_level_effects(records, checkpoints),
         "records": records,
