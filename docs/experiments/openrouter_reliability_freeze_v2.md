@@ -2,6 +2,10 @@
 
 Status: **PROSPECTIVE / TARGET-FREE**
 
+Rule version: `openrouter-reliability-freeze-v2`
+
+Prospective evidence begins: **2026-08-22T12:30:00Z**
+
 This contract governs only when the dynamic OpenRouter reliability observatory may be converted into one frozen generation substrate for the causal-feedback v2 experiment. It does not use Perquire target embeddings, similarities, adaptive scores, or benchmark outcomes.
 
 ## 1. Why a stopping rule is required
@@ -12,9 +16,9 @@ The earlier 12/12 v1 qualification was falsified by the scaling run. Likewise, o
 
 ## 2. Prospective evidence boundary
 
-Only observatory windows whose `observed_at_utc` is **at or after the merge commit/time of this contract** count toward substrate eligibility.
+Only observatory windows whose `observed_at_utc` is **at or after `2026-08-22T12:30:00Z`** count toward substrate eligibility.
 
-Earlier target-free windows remain descriptive evidence and engineering history but cannot satisfy this stopping rule. This prevents choosing the rule after inspecting which candidate happened to look best.
+This timestamp was fixed before those eligible windows existed. Earlier target-free windows remain descriptive evidence and engineering history but cannot satisfy this stopping rule. This prevents choosing the rule after inspecting which candidate happened to look best.
 
 ## 3. Candidate-specific evidence
 
