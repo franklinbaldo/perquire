@@ -67,7 +67,7 @@ jobs:
           assert data['replicates'] == 2
           assert data['case_count'] == 1
           assert data['llm_provider'] == 'openrouter'
-          assert data['llm_model'] == 'openrouter/google/gemini-2.5-flash-lite'
+          assert data['llm_model'] == 'openrouter/stealth/ox-alpha'
           assert data['generation_config']['max_retries'] == 2
           assert len(data['records']) == 12
           assert 'embedding_transport' in data['environment']
