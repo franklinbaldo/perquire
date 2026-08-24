@@ -10,8 +10,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-RULE_VERSION = "openrouter-reliability-freeze-v2"
-EVIDENCE_AFTER = datetime(2026, 8, 22, 12, 30, tzinfo=UTC)
+RULE_VERSION = "openrouter-reliability-freeze-v2-ox-alpha"
+REQUIRED_MODEL = "stealth/ox-alpha"
+EVIDENCE_AFTER = datetime(2026, 8, 24, 14, 0, tzinfo=UTC)
 MIN_WINDOWS = 48
 MIN_SPAN_HOURS = 24.0
 MIN_OBSERVATION_CALLS = 480
@@ -127,51 +128,30 @@ def summarize_candidate(model: str, rows: list[dict[str, Any]]) -> dict[str, Any
     }
 
 
-def _score(value: Any) -> float:
-    try:
-        return float(value) if value is not None else float("-inf")
-    except (TypeError, ValueError):
-        return float("-inf")
-
-
-def selection_key(row: dict[str, Any]) -> tuple[Any, ...]:
-    quality = row["latest_quality"]
-    return (
-        -_score(quality.get("intelligence_index")),
-        -_score(quality.get("agentic_index")),
-        -_score(quality.get("coding_index")),
-        -float(row["observation_success_rate"]),
-        -float(row["clean_window_fraction"]),
-        float(row["transport_logical_ratio"]),
-        str(row["model"]),
-    )
-
-
 def aggregate(windows: list[dict[str, Any]]) -> dict[str, Any]:
     prospective: list[dict[str, Any]] = []
     excluded_pre_rule = 0
+    excluded_wrong_model = 0
     for window in windows:
         timestamp = _parse_time(window["observed_at_utc"])
         if timestamp < EVIDENCE_AFTER:
             excluded_pre_rule += 1
             continue
+        if window.get("selected_model") != REQUIRED_MODEL:
+            excluded_wrong_model += 1
+            continue
         prospective.append(window)
 
     by_model: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for window in prospective:
-        model = window.get("selected_model")
-        if model:
-            by_model[str(model)].append(window)
+        by_model[REQUIRED_MODEL].append(window)
 
     candidates = [summarize_candidate(model, rows) for model, rows in sorted(by_model.items())]
-    eligible = sorted(
-        [row for row in candidates if row["eligible_for_freeze_review"]],
-        key=selection_key,
-    )
+    eligible = [row for row in candidates if row["eligible_for_freeze_review"]]
 
     if eligible:
         status = "eligible"
-        selected_model = eligible[0]["model"]
+        selected_model = REQUIRED_MODEL
     elif any(row["coverage_ok"] for row in candidates):
         status = "reliability_failure"
         selected_model = None
@@ -181,15 +161,17 @@ def aggregate(windows: list[dict[str, Any]]) -> dict[str, Any]:
 
     return {
         "rule_version": RULE_VERSION,
+        "required_model": REQUIRED_MODEL,
         "evidence_after_utc": EVIDENCE_AFTER.isoformat(),
         "status": status,
         "selected_model_for_freeze_review": selected_model,
         "freeze_authorized": False,
         "freeze_authorization_note": (
-            "Even an eligible model needs a separate versioned routing/configuration freeze record before Gate B"
+            "Even eligible Ox Alpha evidence needs a separate versioned routing/configuration freeze record before Gate B"
         ),
         "input_windows": len(windows),
         "excluded_pre_rule_windows": excluded_pre_rule,
+        "excluded_wrong_model_windows": excluded_wrong_model,
         "prospective_windows": len(prospective),
         "thresholds": {
             "min_selected_windows": MIN_WINDOWS,

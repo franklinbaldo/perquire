@@ -17,7 +17,8 @@ import requests
 
 CATALOG_URL = "https://openrouter.ai/api/v1/models"
 OPENROUTER_BASE_URL = "https://openrouter.ai"
-DISCOVERY_CANDIDATES = 5
+TARGET_MODEL = "stealth/ox-alpha"
+DISCOVERY_CANDIDATES = 1
 QUALIFICATION_CALLS_PER_MODEL = 2
 OBSERVATION_CALLS = 10
 MIN_MEAN_UPTIME_PERCENT = 99.5
@@ -43,13 +44,13 @@ def _zero_price(value: Any) -> bool:
     return number == 0.0
 
 
-def _is_free_text_model(model: dict[str, Any]) -> bool:
+def _is_target_text_model(model: dict[str, Any]) -> bool:
     model_id = str(model.get("id", ""))
     pricing = model.get("pricing") or {}
     architecture = model.get("architecture") or {}
     output_modalities = architecture.get("output_modalities") or []
     return (
-        model_id.endswith(":free")
+        model_id == TARGET_MODEL
         and _zero_price(pricing.get("prompt"))
         and _zero_price(pricing.get("completion"))
         and "text" in output_modalities
@@ -137,6 +138,7 @@ def _candidate_sort_key(candidate: dict[str, Any]) -> tuple[Any, ...]:
 
 
 def discover_free_models(api_key: str) -> dict[str, Any]:
+    """Observe the exact prospective Ox Alpha substrate without target data."""
     headers = {"Authorization": f"Bearer {api_key}"}
     response = requests.get(
         CATALOG_URL,
@@ -146,11 +148,11 @@ def discover_free_models(api_key: str) -> dict[str, Any]:
     )
     response.raise_for_status()
     data = response.json().get("data", [])
-    free_models = [model for model in data if _is_free_text_model(model)]
+    target_models = [model for model in data if _is_target_text_model(model)]
 
     checked: list[dict[str, Any]] = []
     eligible: list[dict[str, Any]] = []
-    for model in free_models:
+    for model in target_models:
         model_id = str(model["id"])
         details_path = str((model.get("links") or {}).get("details") or "")
         row: dict[str, Any] = {
@@ -181,16 +183,15 @@ def discover_free_models(api_key: str) -> dict[str, Any]:
     return {
         "catalog_url": CATALOG_URL,
         "catalog_model_count": len(data),
-        "catalog_free_text_model_count": len(free_models),
+        "target_model": TARGET_MODEL,
+        "catalog_target_match_count": len(target_models),
         "minimum_mean_uptime_percent": MIN_MEAN_UPTIME_PERCENT,
         "minimum_endpoint_uptime_percent": MIN_ENDPOINT_UPTIME_PERCENT,
         "selection_rule": (
-            "query current OpenRouter catalog at runtime; filter :free + zero prompt/completion price + text output; "
-            "fetch each model's canonical Endpoints API record; for every operational endpoint use 5m uptime, "
-            "falling back to 30m then 1d only when unavailable; require complete uptime coverage, route mean >=99.5% "
-            "and every endpoint >=95%; rank healthy models by OpenRouter Artificial Analysis intelligence, then "
-            "agentic, then coding index; qualify the top five with two target-free calls each; choose the "
-            "highest-capability candidate that passes 2/2 on our account"
+            "prospectively require exact model stealth/ox-alpha; require zero prompt/completion price and text output; "
+            "fetch its canonical Endpoints API record; for every operational endpoint use 5m uptime, falling back to "
+            "30m then 1d only when unavailable; require complete uptime coverage, route mean >=99.5% and every "
+            "endpoint >=95%; qualify the fixed target with two target-free account calls before ten observation calls"
         ),
         "checked_models": checked,
         "candidates": candidates,
@@ -265,7 +266,7 @@ def main() -> None:
 
     max_calls_per_window = DISCOVERY_CANDIDATES * QUALIFICATION_CALLS_PER_MODEL + OBSERVATION_CALLS
     payload: dict[str, Any] = {
-        "probe": "openrouter-generation-reliability-v2",
+        "probe": "openrouter-generation-reliability-v2-ox-alpha",
         "target_scoring": False,
         "window_id": args.window_id,
         "observed_at_utc": datetime.now(UTC).isoformat(),
@@ -273,6 +274,7 @@ def main() -> None:
         "max_tokens": 64,
         "max_retries": 0,
         "cache_mode": "off",
+        "required_model": TARGET_MODEL,
         "daily_budget_contract": {
             "schedule_windows_per_day": 48,
             "max_qualification_calls_per_window": DISCOVERY_CANDIDATES * QUALIFICATION_CALLS_PER_MODEL,
@@ -294,13 +296,13 @@ def main() -> None:
         payload["discovery"] = discovery
         candidates = discovery["candidates"]
         if not candidates:
-            raise RuntimeError("no free model satisfies the OpenRouter health and capability discovery gate")
+            raise RuntimeError("Ox Alpha does not satisfy the target-free availability/health gate")
 
         qualification, selected_model = qualify_candidates(candidates)
         payload["qualification"] = qualification
         payload["selected_model"] = selected_model
-        if selected_model is None:
-            raise RuntimeError("no quality-ranked free candidate passed 2/2 target-free account probes")
+        if selected_model != TARGET_MODEL:
+            raise RuntimeError("Ox Alpha did not pass 2/2 target-free account probes")
 
         observation_calls: list[dict[str, Any]] = []
         for observation_index in range(OBSERVATION_CALLS):
