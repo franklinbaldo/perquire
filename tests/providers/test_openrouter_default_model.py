@@ -12,7 +12,7 @@ def test_openrouter_default_is_ox_alpha(monkeypatch):
     provider = OpenRouterProvider(config={"requests_per_minute": 0})
 
     assert DEFAULT_MODEL == EXPECTED_OPENROUTER_MODEL
-    assert provider.model == EXPECTED_OPENROUTER_MODEL
+    assert provider.model == f"openrouter/{EXPECTED_OPENROUTER_MODEL}"
 
 
 def test_registry_and_provider_defaults_cannot_drift():
