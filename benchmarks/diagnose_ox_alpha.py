@@ -13,7 +13,7 @@ import os
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 
 def _plain(value: Any) -> Any:
@@ -38,8 +38,15 @@ def _usage(response: Any) -> dict[str, Any]:
     return raw if isinstance(raw, dict) else {}
 
 
-def run_call(cell: dict[str, Any], prompt: str, temperature: float) -> dict[str, Any]:
-    from litellm import completion
+def run_call(
+    cell: dict[str, Any],
+    prompt: str,
+    temperature: float,
+    *,
+    completion_fn: Callable[..., Any] | None = None,
+) -> dict[str, Any]:
+    if completion_fn is None:
+        from litellm import completion as completion_fn
 
     started = time.perf_counter()
     request: dict[str, Any] = {
@@ -66,7 +73,7 @@ def run_call(cell: dict[str, Any], prompt: str, temperature: float) -> dict[str,
         "error": None,
     }
     try:
-        response = completion(**request)
+        response = completion_fn(**request)
         row["transport_success"] = True
         row["response_model"] = getattr(response, "model", None)
         choice = response.choices[0]
@@ -118,7 +125,11 @@ def run(config_path: Path) -> dict[str, Any]:
         )
 
     operational = [row for row in rows if row["operational"]]
-    selected = min(operational, key=lambda row: (row["max_tokens"], row["matrix_index"])) if operational else None
+    selected = (
+        min(operational, key=lambda row: (row["max_tokens"], row["matrix_index"]))
+        if operational
+        else None
+    )
     return {
         "diagnostic": "ox-alpha-target-free-v1",
         "target_scoring": False,
@@ -127,7 +138,9 @@ def run(config_path: Path) -> dict[str, Any]:
         "config": config,
         "cells": rows,
         "decision": {
-            "status": "operational_configuration_found" if selected else "no_eligible_ox_alpha_substrate",
+            "status": (
+                "operational_configuration_found" if selected else "no_eligible_ox_alpha_substrate"
+            ),
             "selected_cell": selected["id"] if selected else None,
             "requires_new_evidence_boundary": bool(selected),
         },
@@ -136,12 +149,16 @@ def run(config_path: Path) -> dict[str, Any]:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=Path, default=Path("benchmarks/ox_alpha_diagnostic_v1.json"))
+    parser.add_argument(
+        "--config", type=Path, default=Path("benchmarks/ox_alpha_diagnostic_v1.json")
+    )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     payload = run(args.config)
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    args.output.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
     print(json.dumps(payload["decision"]))
 
 
