@@ -14,14 +14,12 @@ def _response(content: str, *, reasoning: str = "", finish_reason: str = "stop")
     return SimpleNamespace(model="stealth/ox-alpha", choices=[choice], usage=usage)
 
 
-def test_run_call_distinguishes_transport_from_visible_text(monkeypatch):
-    import litellm
-
-    monkeypatch.setattr(litellm, "completion", lambda **kwargs: _response("", reasoning="thinking"))
+def test_run_call_distinguishes_transport_from_visible_text():
     row = diagnostic.run_call(
         {"id": "x", "model": "stealth/ox-alpha", "max_tokens": 64, "reasoning": None},
         "prompt",
         0.7,
+        completion_fn=lambda **kwargs: _response("", reasoning="thinking"),
     )
     assert row["transport_success"] is True
     assert row["visible_text_success"] is False
