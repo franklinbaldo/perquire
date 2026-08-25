@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -36,6 +36,13 @@ def load_windows(paths: list[Path]) -> list[dict[str, Any]]:
         data["_source_path"] = str(path)
         windows.append(data)
     return windows
+
+
+def _required_qualification(window: dict[str, Any]) -> dict[str, Any] | None:
+    for row in window.get("qualification", []):
+        if row.get("model") == REQUIRED_MODEL:
+            return row
+    return None
 
 
 def _quality_for_selected(window: dict[str, Any], model: str) -> dict[str, float | None]:
@@ -132,15 +139,31 @@ def aggregate(windows: list[dict[str, Any]]) -> dict[str, Any]:
     prospective: list[dict[str, Any]] = []
     excluded_pre_rule = 0
     excluded_wrong_model = 0
+    qualification_failed = 0
+    qualification_failure_reasons: Counter[str] = Counter()
+    post_rule_windows = 0
+
     for window in windows:
         timestamp = _parse_time(window["observed_at_utc"])
         if timestamp < EVIDENCE_AFTER:
             excluded_pre_rule += 1
             continue
-        if window.get("selected_model") != REQUIRED_MODEL:
-            excluded_wrong_model += 1
+
+        post_rule_windows += 1
+        selected_model = window.get("selected_model")
+        if selected_model == REQUIRED_MODEL:
+            prospective.append(window)
             continue
-        prospective.append(window)
+
+        required_qualification = _required_qualification(window)
+        if selected_model is None and required_qualification is not None:
+            qualification_failed += 1
+            for call in required_qualification.get("calls", []):
+                if not call.get("success") and call.get("error"):
+                    qualification_failure_reasons[str(call["error"])] += 1
+            continue
+
+        excluded_wrong_model += 1
 
     by_model: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for window in prospective:
@@ -171,7 +194,10 @@ def aggregate(windows: list[dict[str, Any]]) -> dict[str, Any]:
         ),
         "input_windows": len(windows),
         "excluded_pre_rule_windows": excluded_pre_rule,
+        "post_rule_windows": post_rule_windows,
         "excluded_wrong_model_windows": excluded_wrong_model,
+        "qualification_failed_windows": qualification_failed,
+        "qualification_failure_reasons": dict(qualification_failure_reasons.most_common()),
         "prospective_windows": len(prospective),
         "thresholds": {
             "min_selected_windows": MIN_WINDOWS,
