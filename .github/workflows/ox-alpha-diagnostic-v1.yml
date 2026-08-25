@@ -1,0 +1,41 @@
+name: Ox Alpha target-free diagnostic v1
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.13'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.5'
+          enable-cache: true
+      - name: Sync frozen OpenRouter boundary
+        run: uv sync --python 3.12.13 --extra api-openrouter --frozen
+      - name: Require OpenRouter credential
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: test -n "${OPENROUTER_API_KEY}" || { echo '::error::OPENROUTER_API_KEY missing'; exit 1; }
+      - name: Run preregistered target-free diagnostic
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          uv run --python 3.12.13 python -m benchmarks.diagnose_ox_alpha \
+            --config benchmarks/ox_alpha_diagnostic_v1.json \
+            --output benchmark_results/ox_alpha_diagnostic_v1.json
+      - name: Upload diagnostic artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ox-alpha-diagnostic-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          path: benchmark_results/ox_alpha_diagnostic_v1.json
+          if-no-files-found: error
+          retention-days: 90

@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "target_scoring": false,
+  "model": "stealth/ox-alpha",
+  "prompt": "Generate one concise semantic description of an unspecified topic. Return only the description.",
+  "calls_per_cell": 2,
+  "temperature": 0.7,
+  "cache_mode": "off",
+  "matrix": [
+    {"id": "current-64-default", "max_tokens": 64, "reasoning": null},
+    {"id": "budget-256-default", "max_tokens": 256, "reasoning": null},
+    {"id": "budget-256-low", "max_tokens": 256, "reasoning": {"effort": "low", "exclude": false}},
+    {"id": "budget-1024-low", "max_tokens": 1024, "reasoning": {"effort": "low", "exclude": false}}
+  ],
+  "success_rule": "A cell is operational only if both calls have transport_success=true and visible_text_success=true.",
+  "decision_rule": "If one or more cells are operational, choose the operational cell with the smallest max_tokens, breaking ties by matrix order, freeze it prospectively in a separate change, and restart EVIDENCE_AFTER after that change lands. If no cell is operational, record no eligible Ox Alpha substrate."
+}
