@@ -31,6 +31,28 @@ def window(*, model: str, when: datetime, successes: int = 10, quality: float = 
     }
 
 
+def qualification_failure(*, when: datetime, error: str = "empty completion"):
+    return {
+        "observed_at_utc": when.astimezone(UTC).isoformat(),
+        "selected_model": None,
+        "observation_calls": [],
+        "qualification": [
+            {
+                "model": REQUIRED_MODEL,
+                "quality": {
+                    "intelligence_index": None,
+                    "agentic_index": None,
+                    "coding_index": None,
+                },
+                "calls": [
+                    {"success": False, "transport_attempts": 1, "error": error},
+                    {"success": False, "transport_attempts": 1, "error": error},
+                ],
+            }
+        ],
+    }
+
+
 def test_pre_rule_windows_never_count_toward_eligibility():
     old = [
         window(model=REQUIRED_MODEL, when=EVIDENCE_AFTER - timedelta(minutes=30 * index + 1))
@@ -39,6 +61,7 @@ def test_pre_rule_windows_never_count_toward_eligibility():
     result = aggregate(old)
     assert result["prospective_windows"] == 0
     assert result["excluded_pre_rule_windows"] == 60
+    assert result["post_rule_windows"] == 0
     assert result["status"] == "insufficient_coverage"
 
 
@@ -49,9 +72,25 @@ def test_non_ox_alpha_windows_never_count_after_reset():
     ]
     result = aggregate(rows)
     assert result["required_model"] == REQUIRED_MODEL
+    assert result["post_rule_windows"] == 60
     assert result["prospective_windows"] == 0
     assert result["excluded_wrong_model_windows"] == 60
+    assert result["qualification_failed_windows"] == 0
     assert result["candidates"] == []
+    assert result["status"] == "insufficient_coverage"
+
+
+def test_failed_required_model_qualification_is_not_mislabeled_wrong_model():
+    rows = [
+        qualification_failure(when=EVIDENCE_AFTER + timedelta(minutes=30 * index))
+        for index in range(3)
+    ]
+    result = aggregate(rows)
+    assert result["post_rule_windows"] == 3
+    assert result["prospective_windows"] == 0
+    assert result["excluded_wrong_model_windows"] == 0
+    assert result["qualification_failed_windows"] == 3
+    assert result["qualification_failure_reasons"] == {"empty completion": 6}
     assert result["status"] == "insufficient_coverage"
 
 
