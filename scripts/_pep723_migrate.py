@@ -4,8 +4,8 @@ from __future__ import annotations
 import ast, os, re, sys, tomllib
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]; SELF=Path(__file__).resolve()
-SKIP_PARTS={".git",".venv","venv","src","tests","test","vendor","node_modules","build","dist","site-packages","__pycache__"}
-IMPORT_TO_DIST={"bs4":"beautifulsoup4","click":"click","cryptography":"cryptography","cv2":"opencv-python-headless","cyclopts":"cyclopts","duckdb":"duckdb","fastmcp":"fastmcp","fitz":"pymupdf","httpx":"httpx","ibis":"ibis-framework","keyring":"keyring","litellm":"litellm","markdown_it":"markdown-it-py","matplotlib":"matplotlib","mcp":"mcp","mdformat":"mdformat","networkx":"networkx","numpy":"numpy","openai":"openai","anthropic":"anthropic","pandas":"pandas","PIL":"pillow","playwright":"playwright","pyarrow":"pyarrow","pydantic":"pydantic","pydantic_ai":"pydantic-ai","pytest":"pytest","requests":"requests","rich":"rich","ruamel":"ruamel.yaml","secretstorage":"secretstorage","sklearn":"scikit-learn","yaml":"pyyaml"}
+SKIP_PARTS={".git",".github",".venv","venv","src","tests","test","vendor","node_modules","build","dist","site-packages","__pycache__"}
+IMPORT_TO_DIST={"bs4":"beautifulsoup4","click":"click","cryptography":"cryptography","cv2":"opencv-python-headless","cyclopts":"cyclopts","duckdb":"duckdb","fastmcp":"fastmcp","fitz":"pymupdf","google":"google-generativeai","httpx":"httpx","ibis":"ibis-framework","keyring":"keyring","litellm":"litellm","markdown_it":"markdown-it-py","matplotlib":"matplotlib","mcp":"mcp","mdformat":"mdformat","networkx":"networkx","numpy":"numpy","openai":"openai","anthropic":"anthropic","pandas":"pandas","PIL":"pillow","playwright":"playwright","pyarrow":"pyarrow","pydantic":"pydantic","pydantic_ai":"pydantic-ai","pytest":"pytest","requests":"requests","rich":"rich","ruamel":"ruamel.yaml","secretstorage":"secretstorage","sklearn":"scikit-learn","yaml":"pyyaml"}
 UV_PYTHON_SCRIPT=re.compile(r"\buv run(?:\s+--no-sync)?\s+python\s+((?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+\.py)")
 UV_NOSYNC_SCRIPT=re.compile(r"\buv run\s+--no-sync\s+((?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+\.py)")
 def norm_dist(name): return re.sub(r"[-_.]+","-",name).lower()
@@ -44,6 +44,7 @@ def candidate(path):
  rel=path.relative_to(ROOT)
  if path.resolve()==SELF or any(x in SKIP_PARTS for x in rel.parts) or path.name=="__init__.py" or path.name.startswith("test_") or path.name.endswith("_test.py"): return None
  text=path.read_text(encoding="utf-8")
+ if rel.as_posix()=="benchmarks/benchmark.py": text=text.replace("from src.perquire", "from perquire")
  try: tree=ast.parse(text,filename=str(rel))
  except SyntaxError: return None
  first=text.splitlines()[0] if text.splitlines() else ""
@@ -80,7 +81,7 @@ def main():
  for path,text,deps in plans:
   ast.parse(text,filename=str(path.relative_to(ROOT))); path.write_text(text,encoding="utf-8",newline="\n"); print(f"PEP 723: {path.relative_to(ROOT)} -> {deps}")
  for path in ROOT.rglob("*"):
-  if not path.is_file() or any(x in {".git",".venv","node_modules"} for x in path.parts) or path.resolve()==SELF: continue
+  if not path.is_file() or any(x in {".git",".github",".venv","node_modules"} for x in path.parts) or path.resolve()==SELF: continue
   try: old=path.read_text(encoding="utf-8")
   except (UnicodeDecodeError,OSError): continue
   new=UV_NOSYNC_SCRIPT.sub(r"uv run \1",UV_PYTHON_SCRIPT.sub(r"uv run \1",old))
