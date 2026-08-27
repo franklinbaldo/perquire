@@ -1,4 +1,15 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+#
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "perquire",
+#     "numpy>=2.3.1",
+# ]
+#
+# [tool.uv.sources]
+# perquire = { path = "..", editable = true }
+# ///
 """Check cross-era embedding drift before calibrating semantic similarity.
 
 The drift control compares one vector already present in the persistent cache with

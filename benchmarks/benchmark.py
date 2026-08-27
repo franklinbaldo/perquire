@@ -1,4 +1,14 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+#
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "perquire",
+# ]
+#
+# [tool.uv.sources]
+# perquire = { path = "..", editable = true }
+# ///
 """
 Perquire Benchmark Script
 Validates investigation results against known ground truth scenarios.
@@ -13,15 +23,15 @@ from dataclasses import dataclass
 from pathlib import Path
 
 # Provider imports
-from src.perquire.llm.base import provider_registry, BaseLLMProvider
-from src.perquire.embeddings.base import embedding_registry, BaseEmbeddingProvider
+from perquire.llm.base import provider_registry, BaseLLMProvider
+from perquire.embeddings.base import embedding_registry, BaseEmbeddingProvider
 
 # Import all specific provider modules to ensure they register themselves
-from src.perquire.llm import anthropic_provider, gemini_provider, ollama_provider, openai_provider
-from src.perquire.embeddings import gemini_embeddings, openai_embeddings
+from perquire.llm import anthropic_provider, gemini_provider, ollama_provider, openai_provider
+from perquire.embeddings import gemini_embeddings, openai_embeddings
 
-from src.perquire.core.investigator import PerquireInvestigator
-from src.perquire.embeddings.utils import calculate_similarity
+from perquire.core.investigator import PerquireInvestigator
+from perquire.embeddings.utils import calculate_similarity
 
 
 @dataclass
@@ -100,7 +110,7 @@ class PerquireBenchmark:
             ground_truth_embedding = ground_truth_embedding_result.embedding
 
             # Calculate initial similarity
-            # Note: calculate_similarity is imported from src.perquire.embeddings.utils and expects np.ndarray
+            # Note: calculate_similarity is imported from perquire.embeddings.utils and expects np.ndarray
             initial_similarity = calculate_similarity(user_embedding, ground_truth_embedding)
 
             # Create investigator with the selected providers

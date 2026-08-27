@@ -188,7 +188,7 @@ python3 demo_upgrade.py           # See upgrade comparison
 ```bash
 uv sync --all-extras              # Install with all extras
 export GOOGLE_API_KEY="your-key"
-uv run python examples/live_e2e_test.py
+uv run examples/live_e2e_test.py
 ```
 
 ## 🌟 Highlights

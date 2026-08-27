@@ -1,4 +1,14 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+#
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "perquire",
+# ]
+#
+# [tool.uv.sources]
+# perquire = { path = "..", editable = true }
+# ///
 """Run semantic-inversion benchmark v1 with Perquire providers.
 
 Hidden source text is used only to construct the target embedding. Candidate

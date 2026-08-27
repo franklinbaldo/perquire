@@ -14,10 +14,10 @@ Performance benchmarks and evaluation scripts for Perquire.
 cd benchmarks
 
 # Simple benchmark
-uv run python simple_benchmark.py
+uv run simple_benchmark.py
 
 # Full benchmark suite
-uv run python benchmark.py --provider gemini --iterations 10
+uv run benchmark.py --provider gemini --iterations 10
 ```
 
 ## Current Performance

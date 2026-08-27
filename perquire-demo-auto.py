@@ -1,4 +1,12 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+#
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "numpy>=2.3.1",
+#     "rich>=14.0.0",
+# ]
+# ///
 """
 Quick Perquire Demo - Non-interactive version
 Demonstrates how Perquire investigates unknown embeddings through systematic questioning
@@ -249,7 +257,7 @@ def main():
     console.print("  1. Fix pyproject.toml: requires-python = \">=3.11\" (not >=3.8)")
     console.print("  2. cd /home/frank/workspace/perquire && uv sync")
     console.print("  3. export GOOGLE_API_KEY=\"your-key\"")
-    console.print("  4. uv run python examples/live_e2e_test.py")
+    console.print("  4. uv run examples/live_e2e_test.py")
     console.print("\n[bold yellow]Summary:[/bold yellow]")
     console.print("  Perquire reverses the traditional embedding search process.")
     console.print("  Instead of 'find what matches this query', it asks:")

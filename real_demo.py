@@ -1,4 +1,13 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+#
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "google-generativeai>=0.8.5",
+#     "numpy>=2.3.1",
+#     "rich>=14.0.0",
+# ]
+# ///
 """
 Real Perquire Demo with Actual API Call
 """
