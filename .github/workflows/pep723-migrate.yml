@@ -17,13 +17,11 @@ jobs:
           python-version: '3.12'
       - name: Apply migration
         run: python scripts/_pep723_migrate.py
-      - name: Validate Python syntax and patch hygiene
+      - name: Validate patch hygiene
+        run: git diff --check
+      - name: Commit migration
         run: |
-          python -m compileall -q scripts benchmarks examples . || true
-          git diff --check
-      - name: Commit final migration and remove one-shot machinery
-        run: |
-          rm scripts/_pep723_migrate.py .github/workflows/pep723-migrate.yml
+          rm scripts/_pep723_migrate.py
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
