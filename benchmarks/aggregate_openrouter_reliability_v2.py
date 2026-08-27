@@ -1,4 +1,10 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+#
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+# ]
+# ///
 """Aggregate target-free OpenRouter observatory windows under the frozen v2 rule."""
 
 from __future__ import annotations

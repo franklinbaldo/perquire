@@ -1,4 +1,14 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+#
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "perquire",
+# ]
+#
+# [tool.uv.sources]
+# perquire = { path = "..", editable = true }
+# ///
 """Execute the preregistered causal-feedback v2 mechanism experiment.
 
 The runner deliberately has no scientific substrate defaults: model, upstream

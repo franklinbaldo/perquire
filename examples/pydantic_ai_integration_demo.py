@@ -1,3 +1,15 @@
+#!/usr/bin/env -S uv run --script
+#
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "perquire",
+#     "rich>=14.0.0",
+# ]
+#
+# [tool.uv.sources]
+# perquire = { path = "..", editable = true }
+# ///
 """
 Pydantic AI Provider Integration Demo
 

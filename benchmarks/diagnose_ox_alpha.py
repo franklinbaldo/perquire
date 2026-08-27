@@ -1,4 +1,11 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+#
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "litellm==1.97.0",
+# ]
+# ///
 """Target-free Ox Alpha apparatus diagnostic for #79.
 
 This runner is intentionally separate from the reliability observatory: its calls

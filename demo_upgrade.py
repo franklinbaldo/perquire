@@ -1,4 +1,11 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+#
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "rich>=14.0.0",
+# ]
+# ///
 """
 Perquire CLI Upgrade Demonstration
 Shows the before/after of Click → Typer migration

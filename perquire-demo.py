@@ -1,4 +1,12 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+#
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "numpy>=2.3.1",
+#     "rich>=14.0.0",
+# ]
+# ///
 """
 Quick Perquire Demo
 Demonstrates how Perquire investigates unknown embeddings through systematic questioning
@@ -243,7 +251,7 @@ def main():
     console.print("  2. cd /home/frank/workspace/perquire")
     console.print("  3. Fix pyproject.toml (change requires-python to >=3.11)")
     console.print("  4. uv sync")
-    console.print("  5. uv run python examples/live_e2e_test.py\n")
+    console.print("  5. uv run examples/live_e2e_test.py\n")
 
 if __name__ == "__main__":
     main()
