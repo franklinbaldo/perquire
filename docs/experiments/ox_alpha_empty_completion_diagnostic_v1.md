@@ -31,3 +31,9 @@ A cell is operational only if both calls have transport success and non-empty vi
 - If no cell is operational, record `no_eligible_ox_alpha_substrate`. Do not rescue-switch models or add more cells in this diagnostic version.
 
 No Gate B target score is authorized by this diagnostic.
+
+## Collection
+
+`.github/workflows/ox-alpha-diagnostic-v1.yml` collects the evidence on a recurring 30-minute schedule. Each run is an independent window over the same frozen matrix, uploaded under its own timestamped artifact.
+
+Recurring collection means the diagnostic accumulates many windows rather than one. The frozen matrix and the frozen decision boundary above are unchanged by this: no cell may be added, and no window may be selected after inspection to stand in for the diagnostic result. Analysis across accumulated windows is therefore a repeated-observation reading, not a single preregistered trial, and any conclusion drawn from it must say which windows it used and why before reporting a cell as operational.
