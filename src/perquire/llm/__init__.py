@@ -13,7 +13,7 @@ _PROVIDER_SPECS = {
     "openrouter": (
         ".openrouter_provider",
         "OpenRouterProvider",
-        {"model": "stealth/ox-alpha"},
+        {"model": "minimax/minimax-m3:free"},
     ),
     "ollama": (".ollama_provider", "OllamaProvider", {"model": "llama2", "base_url": "http://localhost:11434"}),
 }

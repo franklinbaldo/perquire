@@ -65,7 +65,7 @@ def test_pre_rule_windows_never_count_toward_eligibility():
     assert result["status"] == "insufficient_coverage"
 
 
-def test_non_ox_alpha_windows_never_count_after_reset():
+def test_foreign_model_windows_never_count_after_reset():
     rows = [
         window(model="some/other-model:free", when=EVIDENCE_AFTER + timedelta(minutes=30 * index))
         for index in range(60)
@@ -94,7 +94,7 @@ def test_failed_required_model_qualification_is_not_mislabeled_wrong_model():
     assert result["status"] == "insufficient_coverage"
 
 
-def test_48_clean_ox_alpha_windows_spanning_24h_make_candidate_reliability_eligible():
+def test_48_clean_required_model_windows_spanning_24h_make_candidate_reliability_eligible():
     rows = [
         window(
             model=REQUIRED_MODEL,

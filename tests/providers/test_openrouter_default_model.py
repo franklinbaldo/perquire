@@ -4,10 +4,10 @@ from perquire.llm import _PROVIDER_SPECS
 from perquire.llm.openrouter_provider import DEFAULT_MODEL, OpenRouterProvider
 
 
-EXPECTED_OPENROUTER_MODEL = "stealth/ox-alpha"
+EXPECTED_OPENROUTER_MODEL = "minimax/minimax-m3:free"
 
 
-def test_openrouter_default_is_ox_alpha(monkeypatch):
+def test_openrouter_default_is_minimax_m3(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
     provider = OpenRouterProvider(config={"requests_per_minute": 0})
 

@@ -28,7 +28,7 @@ import requests
 
 CATALOG_URL = "https://openrouter.ai/api/v1/models"
 OPENROUTER_BASE_URL = "https://openrouter.ai"
-TARGET_MODEL = "stealth/ox-alpha"
+TARGET_MODEL = "minimax/minimax-m3:free"
 DISCOVERY_CANDIDATES = 1
 QUALIFICATION_CALLS_PER_MODEL = 2
 OBSERVATION_CALLS = 10
@@ -149,7 +149,7 @@ def _candidate_sort_key(candidate: dict[str, Any]) -> tuple[Any, ...]:
 
 
 def discover_free_models(api_key: str) -> dict[str, Any]:
-    """Observe the exact prospective Ox Alpha substrate without target data."""
+    """Observe the exact prospective generation substrate without target data."""
     headers = {"Authorization": f"Bearer {api_key}"}
     response = requests.get(
         CATALOG_URL,
@@ -199,7 +199,7 @@ def discover_free_models(api_key: str) -> dict[str, Any]:
         "minimum_mean_uptime_percent": MIN_MEAN_UPTIME_PERCENT,
         "minimum_endpoint_uptime_percent": MIN_ENDPOINT_UPTIME_PERCENT,
         "selection_rule": (
-            "prospectively require exact model stealth/ox-alpha; require zero prompt/completion price and text output; "
+            "prospectively require exact model minimax/minimax-m3:free; require zero prompt/completion price and text output; "
             "fetch its canonical Endpoints API record; for every operational endpoint use 5m uptime, falling back to "
             "30m then 1d only when unavailable; require complete uptime coverage, route mean >=99.5% and every "
             "endpoint >=95%; qualify the fixed target with two target-free account calls before ten observation calls"
@@ -277,7 +277,7 @@ def main() -> None:
 
     max_calls_per_window = DISCOVERY_CANDIDATES * QUALIFICATION_CALLS_PER_MODEL + OBSERVATION_CALLS
     payload: dict[str, Any] = {
-        "probe": "openrouter-generation-reliability-v2-ox-alpha",
+        "probe": "openrouter-generation-reliability-v2-minimax-m3",
         "target_scoring": False,
         "window_id": args.window_id,
         "observed_at_utc": datetime.now(UTC).isoformat(),
@@ -307,13 +307,13 @@ def main() -> None:
         payload["discovery"] = discovery
         candidates = discovery["candidates"]
         if not candidates:
-            raise RuntimeError("Ox Alpha does not satisfy the target-free availability/health gate")
+            raise RuntimeError(f"{TARGET_MODEL} does not satisfy the target-free availability/health gate")
 
         qualification, selected_model = qualify_candidates(candidates)
         payload["qualification"] = qualification
         payload["selected_model"] = selected_model
         if selected_model != TARGET_MODEL:
-            raise RuntimeError("Ox Alpha did not pass 2/2 target-free account probes")
+            raise RuntimeError(f"{TARGET_MODEL} did not pass 2/2 target-free account probes")
 
         observation_calls: list[dict[str, Any]] = []
         for observation_index in range(OBSERVATION_CALLS):

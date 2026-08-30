@@ -16,9 +16,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-RULE_VERSION = "openrouter-reliability-freeze-v2-ox-alpha"
-REQUIRED_MODEL = "stealth/ox-alpha"
-EVIDENCE_AFTER = datetime(2026, 8, 24, 14, 0, tzinfo=UTC)
+RULE_VERSION = "openrouter-reliability-freeze-v2-minimax-m3"
+REQUIRED_MODEL = "minimax/minimax-m3:free"
+EVIDENCE_AFTER = datetime(2026, 8, 30, 18, 0, tzinfo=UTC)
 MIN_WINDOWS = 48
 MIN_SPAN_HOURS = 24.0
 MIN_OBSERVATION_CALLS = 480
@@ -196,7 +196,7 @@ def aggregate(windows: list[dict[str, Any]]) -> dict[str, Any]:
         "selected_model_for_freeze_review": selected_model,
         "freeze_authorized": False,
         "freeze_authorization_note": (
-            "Even eligible Ox Alpha evidence needs a separate versioned routing/configuration freeze record before Gate B"
+            "Even eligible substrate evidence needs a separate versioned routing/configuration freeze record before Gate B"
         ),
         "input_windows": len(windows),
         "excluded_pre_rule_windows": excluded_pre_rule,
