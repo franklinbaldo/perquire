@@ -31,3 +31,9 @@ A cell is operational only if both calls have transport success and non-empty vi
 - If no cell is operational, record `no_eligible_ox_alpha_substrate`. Do not rescue-switch models or add more cells in this diagnostic version.
 
 No Gate B target score is authorized by this diagnostic.
+
+## Collection
+
+`.github/workflows/ox-alpha-diagnostic-v1.yml` collects the evidence. The schedule exists only to reach a first completed run without manual attention: it retries every 30 minutes and stands down permanently once one run of the workflow has succeeded. The first successful run is the authoritative evidence for this diagnostic version.
+
+Repeated scheduled collection followed by run selection would reintroduce exactly the degrees of freedom the frozen matrix removes. If a later re-collection is ever warranted, it needs a new diagnostic version, not another run of this one.
