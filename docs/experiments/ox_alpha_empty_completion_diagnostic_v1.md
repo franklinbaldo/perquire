@@ -34,6 +34,6 @@ No Gate B target score is authorized by this diagnostic.
 
 ## Collection
 
-`.github/workflows/ox-alpha-diagnostic-v1.yml` collects the evidence. The schedule exists only to reach a first completed run without manual attention: it retries every 30 minutes and stands down permanently once one run of the workflow has succeeded. The first successful run is the authoritative evidence for this diagnostic version.
+`.github/workflows/ox-alpha-diagnostic-v1.yml` collects the evidence on a recurring 30-minute schedule. Each run is an independent window over the same frozen matrix, uploaded under its own timestamped artifact.
 
-Repeated scheduled collection followed by run selection would reintroduce exactly the degrees of freedom the frozen matrix removes. If a later re-collection is ever warranted, it needs a new diagnostic version, not another run of this one.
+Recurring collection means the diagnostic accumulates many windows rather than one. The frozen matrix and the frozen decision boundary above are unchanged by this: no cell may be added, and no window may be selected after inspection to stand in for the diagnostic result. Analysis across accumulated windows is therefore a repeated-observation reading, not a single preregistered trial, and any conclusion drawn from it must say which windows it used and why before reporting a cell as operational.
