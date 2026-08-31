@@ -269,7 +269,7 @@ def qualify_candidates(candidates: list[dict[str, Any]]) -> tuple[list[dict[str,
     return qualification, selected_model
 
 
-def main() -> None:
+def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--window-id", required=True)
     parser.add_argument("--output", type=Path, required=True)
@@ -338,10 +338,18 @@ def main() -> None:
                 "selected_model": payload["selected_model"],
                 "observation_calls": len(observation_calls),
                 "observation_successes": sum(bool(call["success"]) for call in observation_calls),
+                "window_error": payload.get("window_error"),
             }
         )
     )
+    if (window_error := payload.get("window_error")) is not None:
+        # The artifact is written and uploaded either way; a window that collected
+        # nothing must not report success, or substrate degradation stays invisible
+        # in Actions until someone reads the artifact.
+        print(f"::error::window collected no evidence: {window_error}")
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
