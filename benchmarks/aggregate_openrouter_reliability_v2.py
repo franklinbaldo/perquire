@@ -16,9 +16,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-RULE_VERSION = "openrouter-reliability-freeze-v2-minimax-m3"
-REQUIRED_MODEL = "minimax/minimax-m3:free"
-EVIDENCE_AFTER = datetime(2026, 8, 30, 18, 0, tzinfo=UTC)
+RULE_VERSION = "openrouter-reliability-freeze-v2-inkling"
+REQUIRED_MODEL = "thinkingmachines/inkling:free"
+EVIDENCE_AFTER = datetime(2026, 9, 1, 0, 0, tzinfo=UTC)
 MIN_WINDOWS = 48
 MIN_SPAN_HOURS = 24.0
 MIN_OBSERVATION_CALLS = 480
@@ -26,6 +26,11 @@ MIN_CLEAN_WINDOW_FRACTION = 0.95
 MIN_CALL_SUCCESS_RATE = 0.995
 MAX_TRANSPORT_LOGICAL_RATIO = 1.01
 MAX_FAILURES_PER_WINDOW = 1
+# A substrate that crosses the availability/health gate between windows cannot
+# accumulate consecutive clean windows. Two consecutive scheduled windows that
+# fail the gate retire it, so the decision is made by the rule rather than by
+# judging after the fact how much oscillation was too much.
+MAX_CONSECUTIVE_HEALTH_GATE_FAILURES = 2
 
 
 def _parse_time(raw: str) -> datetime:
@@ -141,22 +146,38 @@ def summarize_candidate(model: str, rows: list[dict[str, Any]]) -> dict[str, Any
     }
 
 
+def _longest_run(flags: list[bool]) -> int:
+    longest = 0
+    current = 0
+    for flag in flags:
+        current = current + 1 if flag else 0
+        longest = max(longest, current)
+    return longest
+
+
 def aggregate(windows: list[dict[str, Any]]) -> dict[str, Any]:
     prospective: list[dict[str, Any]] = []
     excluded_pre_rule = 0
     excluded_wrong_model = 0
     qualification_failed = 0
     qualification_failure_reasons: Counter[str] = Counter()
+    health_gate_failed = 0
     post_rule_windows = 0
+    health_gate_run: list[bool] = []
 
-    for window in windows:
-        timestamp = _parse_time(window["observed_at_utc"])
-        if timestamp < EVIDENCE_AFTER:
-            excluded_pre_rule += 1
-            continue
-
+    for window in sorted(
+        (row for row in windows if _parse_time(row["observed_at_utc"]) >= EVIDENCE_AFTER),
+        key=lambda row: _parse_time(row["observed_at_utc"]),
+    ):
         post_rule_windows += 1
         selected_model = window.get("selected_model")
+        failed_health_gate = window.get("window_error_kind") == "health_gate"
+        health_gate_run.append(failed_health_gate)
+
+        if failed_health_gate:
+            health_gate_failed += 1
+            continue
+
         if selected_model == REQUIRED_MODEL:
             prospective.append(window)
             continue
@@ -171,6 +192,12 @@ def aggregate(windows: list[dict[str, Any]]) -> dict[str, Any]:
 
         excluded_wrong_model += 1
 
+    excluded_pre_rule = len(windows) - post_rule_windows
+    consecutive_health_gate_failures = _longest_run(health_gate_run)
+    substrate_retired = (
+        consecutive_health_gate_failures >= MAX_CONSECUTIVE_HEALTH_GATE_FAILURES
+    )
+
     by_model: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for window in prospective:
         by_model[REQUIRED_MODEL].append(window)
@@ -178,7 +205,12 @@ def aggregate(windows: list[dict[str, Any]]) -> dict[str, Any]:
     candidates = [summarize_candidate(model, rows) for model, rows in sorted(by_model.items())]
     eligible = [row for row in candidates if row["eligible_for_freeze_review"]]
 
-    if eligible:
+    if substrate_retired:
+        # Retirement is decided before eligibility so that a run of clean windows
+        # after the gate failures cannot rescue a substrate the rule already retired.
+        status = "health_gate_failure"
+        selected_model = None
+    elif eligible:
         status = "eligible"
         selected_model = REQUIRED_MODEL
     elif any(row["coverage_ok"] for row in candidates):
@@ -204,6 +236,9 @@ def aggregate(windows: list[dict[str, Any]]) -> dict[str, Any]:
         "excluded_wrong_model_windows": excluded_wrong_model,
         "qualification_failed_windows": qualification_failed,
         "qualification_failure_reasons": dict(qualification_failure_reasons.most_common()),
+        "health_gate_failed_windows": health_gate_failed,
+        "consecutive_health_gate_failures": consecutive_health_gate_failures,
+        "substrate_retired_by_health_gate": substrate_retired,
         "prospective_windows": len(prospective),
         "thresholds": {
             "min_selected_windows": MIN_WINDOWS,
@@ -214,6 +249,7 @@ def aggregate(windows: list[dict[str, Any]]) -> dict[str, Any]:
             "max_transport_logical_ratio": MAX_TRANSPORT_LOGICAL_RATIO,
             "max_failures_per_window": MAX_FAILURES_PER_WINDOW,
             "consecutive_failed_windows_allowed": False,
+            "max_consecutive_health_gate_failures": MAX_CONSECUTIVE_HEALTH_GATE_FAILURES,
         },
         "candidates": candidates,
     }

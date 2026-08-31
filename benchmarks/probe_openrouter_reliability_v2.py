@@ -28,7 +28,7 @@ import requests
 
 CATALOG_URL = "https://openrouter.ai/api/v1/models"
 OPENROUTER_BASE_URL = "https://openrouter.ai"
-TARGET_MODEL = "minimax/minimax-m3:free"
+TARGET_MODEL = "thinkingmachines/inkling:free"
 DISCOVERY_CANDIDATES = 1
 QUALIFICATION_CALLS_PER_MODEL = 2
 OBSERVATION_CALLS = 10
@@ -40,6 +40,28 @@ PROMPTS = (
     "A previous generic description received similarity 0.2400 to an unspecified hidden target. Propose one concise refinement without assuming the target text. Return only the refinement.",
     "Synthesize one concise description from these generic hints: public records; procedural state; time-sensitive work. Return only the description.",
 )
+
+
+class WindowError(RuntimeError):
+    """A window failed before it could collect evidence."""
+
+    kind = "other"
+
+
+class MissingCredentialError(WindowError):
+    kind = "credential"
+
+
+class HealthGateError(WindowError):
+    """The required model did not satisfy the target-free availability/health gate."""
+
+    kind = "health_gate"
+
+
+class QualificationError(WindowError):
+    """The required model was healthy but failed its target-free account probes."""
+
+    kind = "qualification"
 
 
 def _number(value: Any) -> float | None:
@@ -199,7 +221,7 @@ def discover_free_models(api_key: str) -> dict[str, Any]:
         "minimum_mean_uptime_percent": MIN_MEAN_UPTIME_PERCENT,
         "minimum_endpoint_uptime_percent": MIN_ENDPOINT_UPTIME_PERCENT,
         "selection_rule": (
-            "prospectively require exact model minimax/minimax-m3:free; require zero prompt/completion price and text output; "
+            "prospectively require exact model thinkingmachines/inkling:free; require zero prompt/completion price and text output; "
             "fetch its canonical Endpoints API record; for every operational endpoint use 5m uptime, falling back to "
             "30m then 1d only when unavailable; require complete uptime coverage, route mean >=99.5% and every "
             "endpoint >=95%; qualify the fixed target with two target-free account calls before ten observation calls"
@@ -277,7 +299,7 @@ def main() -> int:
 
     max_calls_per_window = DISCOVERY_CANDIDATES * QUALIFICATION_CALLS_PER_MODEL + OBSERVATION_CALLS
     payload: dict[str, Any] = {
-        "probe": "openrouter-generation-reliability-v2-minimax-m3",
+        "probe": "openrouter-generation-reliability-v2-inkling",
         "target_scoring": False,
         "window_id": args.window_id,
         "observed_at_utc": datetime.now(UTC).isoformat(),
@@ -297,23 +319,25 @@ def main() -> int:
         "qualification": [],
         "selected_model": None,
         "observation_calls": [],
+        "window_error": None,
+        "window_error_kind": None,
     }
 
     api_key = os.environ.get("OPENROUTER_API_KEY", "")
     try:
         if not api_key:
-            raise RuntimeError("OPENROUTER_API_KEY missing")
+            raise MissingCredentialError("OPENROUTER_API_KEY missing")
         discovery = discover_free_models(api_key)
         payload["discovery"] = discovery
         candidates = discovery["candidates"]
         if not candidates:
-            raise RuntimeError(f"{TARGET_MODEL} does not satisfy the target-free availability/health gate")
+            raise HealthGateError(f"{TARGET_MODEL} does not satisfy the target-free availability/health gate")
 
         qualification, selected_model = qualify_candidates(candidates)
         payload["qualification"] = qualification
         payload["selected_model"] = selected_model
         if selected_model != TARGET_MODEL:
-            raise RuntimeError(f"{TARGET_MODEL} did not pass 2/2 target-free account probes")
+            raise QualificationError(f"{TARGET_MODEL} did not pass 2/2 target-free account probes")
 
         observation_calls: list[dict[str, Any]] = []
         for observation_index in range(OBSERVATION_CALLS):
@@ -324,6 +348,10 @@ def main() -> int:
         payload["observation_calls"] = observation_calls
     except Exception as exc:
         payload["window_error"] = f"{type(exc).__name__}: {exc}"
+        # The aggregator distinguishes a health-gate failure from other window
+        # failures, so record the kind structurally instead of leaving it to be
+        # recovered by matching on the message text.
+        payload["window_error_kind"] = exc.kind if isinstance(exc, WindowError) else "other"
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -339,6 +367,7 @@ def main() -> int:
                 "observation_calls": len(observation_calls),
                 "observation_successes": sum(bool(call["success"]) for call in observation_calls),
                 "window_error": payload.get("window_error"),
+                "window_error_kind": payload.get("window_error_kind"),
             }
         )
     )
