@@ -16,9 +16,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-RULE_VERSION = "openrouter-reliability-freeze-v2-minimax-m3"
-REQUIRED_MODEL = "minimax/minimax-m3:free"
-EVIDENCE_AFTER = datetime(2026, 8, 30, 18, 0, tzinfo=UTC)
+RULE_VERSION = "openrouter-reliability-freeze-v2-inkling"
+REQUIRED_MODEL = "thinkingmachines/inkling:free"
+EVIDENCE_AFTER = datetime(2026, 8, 31, 2, 0, tzinfo=UTC)
 MIN_WINDOWS = 48
 MIN_SPAN_HOURS = 24.0
 MIN_OBSERVATION_CALLS = 480

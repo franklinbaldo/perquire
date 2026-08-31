@@ -28,7 +28,7 @@ import requests
 
 CATALOG_URL = "https://openrouter.ai/api/v1/models"
 OPENROUTER_BASE_URL = "https://openrouter.ai"
-TARGET_MODEL = "minimax/minimax-m3:free"
+TARGET_MODEL = "thinkingmachines/inkling:free"
 DISCOVERY_CANDIDATES = 1
 QUALIFICATION_CALLS_PER_MODEL = 2
 OBSERVATION_CALLS = 10
@@ -199,7 +199,7 @@ def discover_free_models(api_key: str) -> dict[str, Any]:
         "minimum_mean_uptime_percent": MIN_MEAN_UPTIME_PERCENT,
         "minimum_endpoint_uptime_percent": MIN_ENDPOINT_UPTIME_PERCENT,
         "selection_rule": (
-            "prospectively require exact model minimax/minimax-m3:free; require zero prompt/completion price and text output; "
+            "prospectively require exact model thinkingmachines/inkling:free; require zero prompt/completion price and text output; "
             "fetch its canonical Endpoints API record; for every operational endpoint use 5m uptime, falling back to "
             "30m then 1d only when unavailable; require complete uptime coverage, route mean >=99.5% and every "
             "endpoint >=95%; qualify the fixed target with two target-free account calls before ten observation calls"
@@ -277,7 +277,7 @@ def main() -> None:
 
     max_calls_per_window = DISCOVERY_CANDIDATES * QUALIFICATION_CALLS_PER_MODEL + OBSERVATION_CALLS
     payload: dict[str, Any] = {
-        "probe": "openrouter-generation-reliability-v2-minimax-m3",
+        "probe": "openrouter-generation-reliability-v2-inkling",
         "target_scoring": False,
         "window_id": args.window_id,
         "observed_at_utc": datetime.now(UTC).isoformat(),
