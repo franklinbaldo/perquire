@@ -42,6 +42,28 @@ PROMPTS = (
 )
 
 
+class WindowError(RuntimeError):
+    """A window failed before it could collect evidence."""
+
+    kind = "other"
+
+
+class MissingCredentialError(WindowError):
+    kind = "credential"
+
+
+class HealthGateError(WindowError):
+    """The required model did not satisfy the target-free availability/health gate."""
+
+    kind = "health_gate"
+
+
+class QualificationError(WindowError):
+    """The required model was healthy but failed its target-free account probes."""
+
+    kind = "qualification"
+
+
 def _number(value: Any) -> float | None:
     try:
         number = float(value)
@@ -297,23 +319,25 @@ def main() -> int:
         "qualification": [],
         "selected_model": None,
         "observation_calls": [],
+        "window_error": None,
+        "window_error_kind": None,
     }
 
     api_key = os.environ.get("OPENROUTER_API_KEY", "")
     try:
         if not api_key:
-            raise RuntimeError("OPENROUTER_API_KEY missing")
+            raise MissingCredentialError("OPENROUTER_API_KEY missing")
         discovery = discover_free_models(api_key)
         payload["discovery"] = discovery
         candidates = discovery["candidates"]
         if not candidates:
-            raise RuntimeError(f"{TARGET_MODEL} does not satisfy the target-free availability/health gate")
+            raise HealthGateError(f"{TARGET_MODEL} does not satisfy the target-free availability/health gate")
 
         qualification, selected_model = qualify_candidates(candidates)
         payload["qualification"] = qualification
         payload["selected_model"] = selected_model
         if selected_model != TARGET_MODEL:
-            raise RuntimeError(f"{TARGET_MODEL} did not pass 2/2 target-free account probes")
+            raise QualificationError(f"{TARGET_MODEL} did not pass 2/2 target-free account probes")
 
         observation_calls: list[dict[str, Any]] = []
         for observation_index in range(OBSERVATION_CALLS):
@@ -324,6 +348,10 @@ def main() -> int:
         payload["observation_calls"] = observation_calls
     except Exception as exc:
         payload["window_error"] = f"{type(exc).__name__}: {exc}"
+        # The aggregator distinguishes a health-gate failure from other window
+        # failures, so record the kind structurally instead of leaving it to be
+        # recovered by matching on the message text.
+        payload["window_error_kind"] = exc.kind if isinstance(exc, WindowError) else "other"
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -339,6 +367,7 @@ def main() -> int:
                 "observation_calls": len(observation_calls),
                 "observation_successes": sum(bool(call["success"]) for call in observation_calls),
                 "window_error": payload.get("window_error"),
+                "window_error_kind": payload.get("window_error_kind"),
             }
         )
     )

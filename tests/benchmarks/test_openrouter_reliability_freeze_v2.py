@@ -148,3 +148,94 @@ def test_consecutive_failure_windows_fail_even_if_aggregate_rate_could_pass():
     assert candidate["observation_success_rate"] >= 0.995
     assert candidate["consecutive_failed_windows"] is True
     assert candidate["reliability_ok"] is False
+
+
+def health_gate_failure(*, when: datetime):
+    return {
+        "observed_at_utc": when.astimezone(UTC).isoformat(),
+        "selected_model": None,
+        "observation_calls": [],
+        "qualification": [],
+        "window_error": f"HealthGateError: {REQUIRED_MODEL} does not satisfy the gate",
+        "window_error_kind": "health_gate",
+    }
+
+
+def test_health_gate_failures_are_counted_instead_of_silently_dropped():
+    result = aggregate(
+        [
+            health_gate_failure(when=EVIDENCE_AFTER + timedelta(minutes=30)),
+            window(model=REQUIRED_MODEL, when=EVIDENCE_AFTER + timedelta(minutes=60)),
+        ]
+    )
+
+    assert result["health_gate_failed_windows"] == 1
+    assert result["consecutive_health_gate_failures"] == 1
+    assert result["excluded_wrong_model_windows"] == 0
+    assert result["post_rule_windows"] == 2
+
+
+def test_one_valid_window_between_gate_failures_does_not_retire_the_substrate():
+    result = aggregate(
+        [
+            health_gate_failure(when=EVIDENCE_AFTER + timedelta(minutes=30)),
+            window(model=REQUIRED_MODEL, when=EVIDENCE_AFTER + timedelta(minutes=60)),
+            health_gate_failure(when=EVIDENCE_AFTER + timedelta(minutes=90)),
+        ]
+    )
+
+    assert result["health_gate_failed_windows"] == 2
+    assert result["consecutive_health_gate_failures"] == 1
+    assert result["substrate_retired_by_health_gate"] is False
+    assert result["status"] == "insufficient_coverage"
+
+
+def test_two_consecutive_gate_failures_retire_the_substrate():
+    result = aggregate(
+        [
+            window(model=REQUIRED_MODEL, when=EVIDENCE_AFTER + timedelta(minutes=30)),
+            health_gate_failure(when=EVIDENCE_AFTER + timedelta(minutes=60)),
+            health_gate_failure(when=EVIDENCE_AFTER + timedelta(minutes=90)),
+        ]
+    )
+
+    assert result["consecutive_health_gate_failures"] == 2
+    assert result["substrate_retired_by_health_gate"] is True
+    assert result["status"] == "health_gate_failure"
+    assert result["selected_model_for_freeze_review"] is None
+
+
+def test_consecutiveness_follows_observation_time_not_input_order():
+    early = health_gate_failure(when=EVIDENCE_AFTER + timedelta(minutes=30))
+    late = health_gate_failure(when=EVIDENCE_AFTER + timedelta(minutes=90))
+    middle = window(model=REQUIRED_MODEL, when=EVIDENCE_AFTER + timedelta(minutes=60))
+
+    assert aggregate([early, late, middle])["consecutive_health_gate_failures"] == 1
+
+
+def test_a_retired_substrate_is_not_rescued_by_later_clean_windows():
+    windows = [
+        health_gate_failure(when=EVIDENCE_AFTER + timedelta(minutes=30)),
+        health_gate_failure(when=EVIDENCE_AFTER + timedelta(minutes=60)),
+    ]
+    windows += [
+        window(model=REQUIRED_MODEL, when=EVIDENCE_AFTER + timedelta(minutes=(24 * 60 / 47) * index + 120))
+        for index in range(48)
+    ]
+
+    result = aggregate(windows)
+
+    assert result["substrate_retired_by_health_gate"] is True
+    assert result["candidates"][0]["eligible_for_freeze_review"] is True
+    assert result["status"] == "health_gate_failure"
+    assert result["freeze_authorized"] is False
+
+
+def test_windows_without_the_kind_field_are_not_counted_as_gate_failures():
+    legacy = qualification_failure(when=EVIDENCE_AFTER + timedelta(minutes=30))
+    assert "window_error_kind" not in legacy
+
+    result = aggregate([legacy])
+
+    assert result["health_gate_failed_windows"] == 0
+    assert result["qualification_failed_windows"] == 1
