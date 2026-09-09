@@ -1,0 +1,103 @@
+name: Semantic Atlas DGCT provider v1
+
+on:
+  push:
+    branches:
+      - experiment/semantic-atlas-dgct-provider-v1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: semantic-atlas-dgct-provider-v1
+  cancel-in-progress: false
+
+jobs:
+  dgct:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PERQUIRE_CACHE_DIR: .cache/perquire
+    steps:
+      - name: Checkout Perquire
+        uses: actions/checkout@v4
+
+      - name: Checkout frozen papers harness
+        uses: actions/checkout@v4
+        with:
+          repository: franklinbaldo/papers
+          ref: dabfd5102199212896a68b8b6f6b12297e1a5963
+          path: papers-src
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.13'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.5'
+          enable-cache: true
+
+      - name: Restore provider cache
+        uses: actions/cache@v4
+        with:
+          path: .cache/perquire
+          key: semantic-atlas-dgct-provider-v1-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            semantic-atlas-dgct-provider-v1-${{ runner.os }}-
+
+      - name: Sync OpenRouter substrate from lock
+        run: uv sync --python 3.12.13 --extra api-openrouter --frozen
+
+      - name: Run frozen DGCT measurement
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          test -n "$OPENROUTER_API_KEY" || { echo '::error::OPENROUTER_API_KEY missing'; exit 1; }
+          uv run --python 3.12.13 python benchmarks/run_semantic_atlas_dgct_provider_v1.py
+
+      - name: Build human-readable summary
+        if: success()
+        run: |
+          uv run --python 3.12.13 python - <<'PY'
+          import json
+          from pathlib import Path
+
+          p = Path('benchmark_results/semantic_atlas_dgct_provider_v1.json')
+          d = json.loads(p.read_text())
+          lines = [
+              '# Semantic Atlas DGCT provider v1',
+              '',
+              f"Freeze: `{d['freeze_sha256']}`",
+              '',
+              '| field | ref energy ratio | transfer energy ratio | ref rank ratio | transfer rank ratio | cosine gain | RMSE ratio |',
+              '|---|---:|---:|---:|---:|---:|---:|',
+          ]
+          for name, row in d['fields'].items():
+              delta = row['cross_model']['delta']
+              lines.append(
+                  f"| `{name}` | {row['reference_observer']['test_energy_ratio']:.6f} | "
+                  f"{row['transfer_observer']['test_energy_ratio']:.6f} | "
+                  f"{row['reference_observer']['test_effective_rank_ratio']:.6f} | "
+                  f"{row['transfer_observer']['test_effective_rank_ratio']:.6f} | "
+                  f"{delta['mean_row_cosine_gain']:.6f} | {delta['normalized_rmse_ratio']:.6f} |"
+              )
+          Path('benchmark_results/semantic_atlas_dgct_provider_v1.md').write_text('\n'.join(lines) + '\n')
+          print('\n'.join(lines))
+          PY
+
+      - name: Upload auditable DGCT artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: semantic-atlas-dgct-provider-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            benchmark_results/semantic_atlas_dgct_provider_v1.json
+            benchmark_results/semantic_atlas_dgct_provider_v1.md
+            docs/experiments/semantic_atlas_dgct_provider_v1.json
+            docs/experiments/semantic_atlas_dgct_provider_v1.md
+          if-no-files-found: warn
+          retention-days: 90
