@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "experiment": "semantic-atlas-dgct-provider-v1",
+  "status": "PREREGISTERED_BEFORE_LIVE_RUN",
+  "papers_harness_commit": "dabfd5102199212896a68b8b6f6b12297e1a5963",
+  "corpus_source_commit": "ff68b0653063e11e9cc3da887003bc0d46b14d26",
+  "srf_dim": 64,
+  "corpus": {
+    "selection": "sha256(path) ascending over markdown files at corpus_source_commit",
+    "calibration_count": 80,
+    "heldout_count": 24,
+    "trajectory_count": 12,
+    "excerpt_chars": 1200
+  },
+  "generator": {
+    "provider": "openrouter",
+    "model": "nvidia/nemotron-3.5-lightning:free",
+    "temperature": 0.0,
+    "max_tokens": 96,
+    "requests_per_minute": 20,
+    "max_retries": 2,
+    "word_chunk": 12,
+    "max_words": 48,
+    "cache_mode": "fresh"
+  },
+  "reference_observer": {
+    "provider": "openrouter",
+    "model": "qwen/qwen3-embedding-4b",
+    "requests_per_minute": 20,
+    "max_retries": 2
+  },
+  "transfer_observer": {
+    "provider": "openrouter",
+    "model": "nvidia/nemotron-3-embed-1b:free",
+    "requests_per_minute": 20,
+    "max_retries": 2
+  },
+  "trajectory_split": {
+    "seed": 7301,
+    "train_fraction": 0.67,
+    "unit": "whole trajectory"
+  },
+  "amplitude": {
+    "basis": "constant",
+    "ridge": 1e-8
+  },
+  "complexity": {
+    "predictor_ridge": 1e-6,
+    "sample_fractions": [0.25, 0.5, 0.75, 1.0],
+    "target_relative_mse": 0.8
+  },
+  "fields": [
+    {"family": "zero", "dim": 64, "seed": 0, "scale": 1.0, "strength": 0.0},
+    {"family": "radial_gradient", "dim": 64, "seed": 101, "scale": 1.0, "strength": 1.0},
+    {"family": "vortex_smooth", "dim": 64, "seed": 137, "scale": 1.0, "strength": 1.0},
+    {"family": "random_divergence_free", "dim": 64, "seed": 211, "scale": 1.0, "strength": 1.0}
+  ],
+  "freeze_order": "This file is committed before the first provider-backed DGCT outcome is generated. No field, model, split, corpus, chunking, amplitude or primary complexity parameter may be changed after inspecting live outcomes without incrementing the experiment version.",
+  "claim_boundary": "Provider-backed v1 is a replication/execution substrate for the Dynamic Gauge Compression Test. A green run is not a positive scientific result. Navier-Stokes-inspired fields are not tested."
+}
