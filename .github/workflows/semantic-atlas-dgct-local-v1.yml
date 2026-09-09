@@ -1,0 +1,99 @@
+name: Semantic Atlas DGCT local v1
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/semantic-atlas-dgct-local-v1.yml'
+      - 'docs/experiments/semantic_atlas_dgct_local_v1.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: semantic-atlas-dgct-local-v1
+  cancel-in-progress: false
+
+jobs:
+  dgct:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      HF_HOME: ${{ github.workspace }}/.cache/huggingface
+      TRANSFORMERS_CACHE: ${{ github.workspace }}/.cache/huggingface/transformers
+      SENTENCE_TRANSFORMERS_HOME: ${{ github.workspace }}/.cache/sentence-transformers
+    steps:
+      - name: Checkout Perquire
+        uses: actions/checkout@v4
+
+      - name: Checkout frozen papers DGCT
+        uses: actions/checkout@v4
+        with:
+          repository: franklinbaldo/papers
+          ref: dabfd5102199212896a68b8b6f6b12297e1a5963
+          path: papers-src
+          fetch-depth: 0
+
+      - name: Verify frozen papers commit
+        run: |
+          test "$(git -C papers-src rev-parse HEAD)" = "dabfd5102199212896a68b8b6f6b12297e1a5963"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.5'
+          enable-cache: true
+
+      - name: Restore Hugging Face model cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .cache/huggingface
+            .cache/sentence-transformers
+          key: semantic-atlas-dgct-local-v1-${{ runner.os }}-qwen3-06b-minilm
+          restore-keys: |
+            semantic-atlas-dgct-local-v1-${{ runner.os }}-
+
+      - name: Install frozen experiment dependencies
+        working-directory: papers-src/experiments/semantic_atlas
+        run: |
+          uv venv --python 3.11
+          uv pip install --python .venv/bin/python -e '.[models]'
+
+      - name: Run frozen Dynamic Gauge Compression Test v1
+        working-directory: papers-src/experiments/semantic_atlas
+        env:
+          TOKENIZERS_PARALLELISM: 'false'
+        run: .venv/bin/python scripts/run_dynamic_gauge_compression.py
+
+      - name: Print scientific summary
+        if: success()
+        working-directory: papers-src/experiments/semantic_atlas
+        run: |
+          .venv/bin/python - <<'PY'
+          import json
+          from pathlib import Path
+
+          p = Path('artifacts/dynamic_gauge_compression_v1.json')
+          d = json.loads(p.read_text())
+          print(json.dumps(d.get('summary', d.get('fields', d.get('metrics', {}))), indent=2)[:20000])
+          PY
+
+      - name: Upload frozen DGCT result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: semantic-atlas-dgct-local-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            papers-src/experiments/semantic_atlas/artifacts/dynamic_gauge_compression_v1.json
+            papers-src/experiments/semantic_atlas/dynamic_gauge_compression_v1.json
+            papers-src/experiments/semantic_atlas/protocol_dynamic_gauge_compression_v1.md
+            docs/experiments/semantic_atlas_dgct_local_v1.md
+          if-no-files-found: warn
+          retention-days: 90
