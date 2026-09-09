@@ -3,7 +3,13 @@ name: Semantic Atlas DGCT provider v1
 on:
   push:
     branches:
+      - main
       - experiment/semantic-atlas-dgct-provider-v1
+    paths:
+      - '.github/workflows/semantic-atlas-dgct-provider-v1.yml'
+      - 'benchmarks/run_semantic_atlas_dgct_provider_v1.py'
+      - 'docs/experiments/semantic_atlas_dgct_provider_v1.json'
+      - 'docs/experiments/semantic_atlas_dgct_provider_v1.md'
   workflow_dispatch:
 
 permissions:
