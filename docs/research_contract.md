@@ -10,6 +10,32 @@ The target-free OpenRouter reliability observatory and `docs/experiments/openrou
 
 A positive causal-feedback result establishes only useful search information in the optimized embedding space. The stronger semantic-recovery claim still requires a separately frozen held-out evaluator.
 
+## Cross-project evidence onboarding
+
+Perquire is part of the broader semantic-systems programme, but it has its **own evidence state**.
+
+Before an agent changes the research mechanism, it should read:
+
+1. this research contract;
+2. `docs/experiments/causal_feedback_v2_preregistration.md`;
+3. the canonical programme map in `franklinbaldo/papers/research/semantic-systems-map.md`;
+4. the agent-facing evidence ledger in `franklinbaldo/papers/research/semantic-systems-evidence-state.md`;
+5. the Unified Semantic Identification Benchmark protocol in `franklinbaldo/papers/experiments/unified_semantic_identification/protocol.md` when making cross-project claims.
+
+The cross-project evidence ledger must **not** be used to upgrade Perquire's local claim. Pontifex has accumulated substantial positive and negative structure; Perquire has not yet earned the corresponding semantic-recovery claim. The active Perquire gate remains causal-feedback v2.
+
+The correct starting posture is:
+
+> Perquire is a concrete semantic-inversion/search system with a testable feedback mechanism. The v1 operational failure is already known; the v2 causal mechanism and an independent semantic-validity layer are the next gates. Do not restart from "what is Perquire?", but do not import Pontifex's positive evidence either.
+
+When Perquire participates in the Unified Semantic Identification Benchmark:
+
+- adaptation/search may use only the allowed student/adaptation partition;
+- validation may choose frozen hyperparameters/stopping rules;
+- test-target feedback may not influence prompts, search policy, budget, or stopping;
+- optimizer cosine is not the held-out semantic evaluator;
+- results must be reported as Perquire-specific incremental information, not pooled programme evidence.
+
 ## Problem
 
 Perquire receives a target vector `v` produced by a known embedding function `E` and searches natural-language candidates `x` using only evaluations of a similarity function such as:
