@@ -84,22 +84,11 @@ jobs:
           print('SCALING_SMOKE_OK')
           PY
 
-      - name: Save partial scaling-smoke cache
-        if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: .cache/perquire
-          key: perquire-scaling-smoke-v2-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+      # Cache is intentionally restore-only: provider responses are reusable,
+      # but every run must not mint another immutable cache blob.
 
-      - name: Upload durable scaling cache snapshot
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: openrouter-scaling-cache-${{ github.run_id }}-${{ github.run_attempt }}
-          path: .cache/perquire
-          include-hidden-files: true
-          if-no-files-found: warn
-          retention-days: 90
+      # Do not duplicate the provider cache as an artifact. The scientific
+      # result below is the durable evidence; cached responses are regenerable.
 
       - name: Upload auditable scaling evidence
         if: always()

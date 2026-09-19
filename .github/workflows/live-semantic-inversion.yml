@@ -24,10 +24,10 @@ jobs:
           enable-cache: true
 
       - name: Restore accumulated embedding cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: .cache/perquire
-          key: perquire-embeddings-v1-${{ runner.os }}-${{ github.run_id }}
+          key: perquire-embeddings-v1-${{ runner.os }}-readonly
           restore-keys: |
             perquire-embeddings-v1-${{ runner.os }}-
 
