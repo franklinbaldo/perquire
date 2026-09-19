@@ -48,10 +48,10 @@ jobs:
           enable-cache: true
 
       - name: Restore provider cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: .cache/perquire
-          key: semantic-atlas-dgct-provider-v1-${{ runner.os }}-${{ github.run_id }}
+          key: semantic-atlas-dgct-provider-v1-${{ runner.os }}-readonly
           restore-keys: |
             semantic-atlas-dgct-provider-v1-${{ runner.os }}-
 
