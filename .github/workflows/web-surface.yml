@@ -14,11 +14,16 @@ on:
       - "tests/test_web_surface.py"
       - ".github/workflows/web-surface.yml"
 
+env:
+  EVIDENCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
 jobs:
   rendered-template-smoke:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EVIDENCE_SHA }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12.13"
@@ -30,3 +35,73 @@ jobs:
         run: uv sync --python 3.12.13 --extra web --frozen
       - name: Render and inspect the web surface
         run: uv run --python 3.12.13 pytest -q tests/test_web_surface.py
+
+  browser-evidence:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EVIDENCE_SHA }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.13"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.5'
+          enable-cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Sync real web application from lock
+        run: uv sync --python 3.12.13 --extra web --frozen
+      - name: Install Chromium for controlled capture
+        run: npx --yes playwright@1.55.0 install --with-deps chromium
+      - name: Start the real FastAPI surface
+        run: |
+          uv run --python 3.12.13 python -m perquire.web.main \
+            --host 127.0.0.1 \
+            --port 8000 \
+            --database /tmp/perquire-visual.db \
+            > /tmp/perquire-web.log 2>&1 &
+          echo $! > /tmp/perquire-web.pid
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8000/ > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/perquire-web.log
+          exit 1
+      - name: Capture desktop and narrow viewports
+        run: |
+          mkdir -p visual-evidence
+          npx --yes playwright@1.55.0 screenshot \
+            --browser chromium \
+            --viewport-size="1280,900" \
+            --wait-for-timeout=1000 \
+            http://127.0.0.1:8000/ \
+            visual-evidence/perquire-home-desktop.png
+          npx --yes playwright@1.55.0 screenshot \
+            --browser chromium \
+            --viewport-size="390,844" \
+            --wait-for-timeout=1000 \
+            http://127.0.0.1:8000/ \
+            visual-evidence/perquire-home-narrow.png
+          cat > visual-evidence/evidence.txt <<EOF
+          revision=${EVIDENCE_SHA}
+          route=/
+          method=Playwright 1.55.0 / Chromium / real FastAPI process
+          desktop=1280x900
+          narrow=390x844
+          credentials=none
+          EOF
+      - name: Preserve browser evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: perquire-home-visual-${{ env.EVIDENCE_SHA }}
+          path: visual-evidence/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Show server log on failure
+        if: failure()
+        run: cat /tmp/perquire-web.log || true
